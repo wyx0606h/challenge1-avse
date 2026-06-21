@@ -32,8 +32,8 @@ This challenge tackles both gaps through two tracks:
 
 | Date (2026) | Milestone |
 |-------------|-----------|
-| Jun 16 | Challenge registration opens |
-| **Jun 22** | Release of baseline system, training-data references, and **development set** (Track 1 & 2) |
+| Jun 22 | Challenge registration opens |
+| **Jun 23** | Release of baseline system, training-data references, and **development set** (Track 1 & 2) |
 | Jul 12 | **Test set** released; leaderboard opens (≤ 3 submissions/team/day) |
 | Jul 17 | Registration closes |
 | Jul 24 | Leaderboard frozen |
