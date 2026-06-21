@@ -1,0 +1,74 @@
+# ============================================================================
+# Real-AVSE Challenge Baseline — .gitignore
+# Tracks: source code + configs + baseline scores (csv/logs).
+# Excludes: model weights, training artifacts, logs, caches, large data.
+# Model weights are fetched via download_models.sh, not committed.
+# ============================================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.ipynb_checkpoints/
+
+# ---- Model weights / checkpoints (fetched via download_models.sh) ----
+*.ckpt
+*.pth
+*.pth.tar
+*.pt
+*.onnx
+*.safetensors
+
+# Pretrained weights (downloaded, not committed)
+pretrained/
+video_pretrain/
+
+# ---- Experiments: keep baseline scores (results/*.csv) + logs/, drop weights ----
+# Weight patterns above (*.ckpt/*.pth/*.pt) already exclude the checkpoints.
+# best_model.pth / last.ckpt / epoch=*.ckpt are all covered.
+
+# ---- Training / experiment logs ----
+swanlog/
+wandb/
+
+# ---- Dataset-construction tooling (organizer-internal, not shipped) ----
+# The whole preprocess/ tree builds and scores the challenge dataset: metadata
+# builders, dev/test split, remix/perturb generation, landmark extraction, and
+# the resulting manifests (track{1,2}/*_{dev,test}.json). Participants only get
+# the distributed audio+face and submit estimates — scoring is done by us — so
+# none of this belongs in the released baseline.
+preprocess/
+
+# ---- Caches & generated metadata ----
+.cache/
+DataPreProcess/vox2/
+Experiments/
+enhanced_out/
+
+# ---- Vendored third-party repo not used by the baseline ----
+# wespeaker: architecture is reproduced in look2hear/models/wespeaker_resnet34.py;
+# only the downloaded weights (in pretrained/) are needed at runtime.
+wespeaker/
+
+# ---- Fun-ASR: keep model.py/ctc.py/tools/ (eval hard-deps), drop nested git ----
+# funasr itself is installed via pip (see requirements.txt).
+# eval_real.py uses trust_remote_code -> Fun-ASR/model.py, which imports
+# ctc.py and tools/utils.py — those stay. Everything below is upstream-only.
+Fun-ASR/.git/
+Fun-ASR/.github/
+Fun-ASR/docs/
+Fun-ASR/images/
+Fun-ASR/runtime/
+Fun-ASR/examples/
+Fun-ASR/deepspeed_conf/
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ---- Keep VSCode/Claude project settings? (uncomment to ignore) ----
+# .vscode/
+# .claude/
