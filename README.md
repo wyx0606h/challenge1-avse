@@ -25,7 +25,7 @@ This challenge tackles both gaps through two tracks:
 | Track | Theme | What it tests |
 |-------|-------|---------------|
 | **Track 1** | Real-World Mixed Scenarios | Multi-speaker audio-visual data captured naturally, with speech mixed organically rather than synthetically — a realistic test of robustness and practicality. |
-| **Track 2** | Visual Degradation | Visually degraded samples (occlusion, low quality, missing frames, blur) built on public data, to systematically probe how models hold up when the visual modality becomes unreliable. |
+| **Track 2** | Visual Degradation | Visually degraded samples (occlusion, low resolution, frame freeze, missing/dropped frames, and audio-visual desynchronization) built on public data, to systematically probe how models hold up when the visual modality becomes unreliable. |
 
 ---
 
@@ -89,6 +89,17 @@ Each track has a `dev` and a `test` split, and each split has two **scenes**:
 
 Every clip yields **two evaluation items** (one per target speaker, `s1` and `s2`); the model is run once per target with that speaker's lip video. Audio is 16 kHz mono; faces are 256×256 mp4 at 25 fps, aligned with the audio.
 
+**Track composition.** Track 2 is **not** a separate, smaller corpus — it is the **entire Track 1 set with its target-speaker video degraded offline** (occlusion, low resolution, frame freeze, dropped frames, AV desync), **plus** Track 2's own additional far-field (3 m) recordings. So every Track 1 clip id appears in Track 2 with a re-encoded (degraded) `s{1,2}.mp4` but the **same `mix.wav`**, and Track 2 adds its 3 m material on top. Both tracks' manifests enumerate the full clip set for that track.
+
+| split | scene | Track 1 | Track 2 (= Track 1 degraded + 3 m) |
+|-------|-------|:-------:|:----------------------------------:|
+| dev   | mix   | 1242    | 1527 |
+| dev   | remix | 900     | 1098 |
+| test  | mix   | 2472    | 2820 |
+| test  | remix | 1785    | 2121 |
+
+Each entry expands to two eval items (`s1`/`s2`), so e.g. Track 2 `dev` enumerates `(1527 + 1098) × 2 = 5250` items. When sharded across N GPUs, each shard's progress bar shows ≈ items/N — Track 2's bar is larger than Track 1's because Track 2 is a superset.
+
 ### What participants receive (`Real-World-AVSE/`)
 
 The released package follows the standard challenge handout — **`dev` ships ground truth for self-evaluation; `test` is withheld** (only the model inputs):
@@ -96,18 +107,19 @@ The released package follows the standard challenge handout — **`dev` ships gr
 ```
 Real-World-AVSE/track{1,2}/
 ├── dev/                              # full self-eval assets
-│   ├── mix/<id>/        mix.wav  s1.mp4 s2.mp4  s1.txt s2.txt
-│   ├── remix/<id>/      mix.wav  s1.mp4 s2.mp4  s1.txt s2.txt  s1.wav s2.wav   # clean GT
+│   ├── mix/<id>/        mix.wav  s1.mp4 s2.mp4  s1.pkl s2.pkl  s1.txt s2.txt
+│   ├── remix/<id>/      mix.wav  s1.mp4 s2.mp4  s1.pkl s2.pkl  s1.txt s2.txt  s1.wav s2.wav   # clean GT
 │   ├── mix_manifest.json            # mix_id, s1_speaker, s2_speaker
 │   └── remix_manifest.json          # + s1_id, s2_id
 └── test/                            # inputs only — GT withheld
-    ├── mix/<id>/        mix.wav  s1.mp4 s2.mp4
-    └── remix/<id>/      mix.wav  s1.mp4 s2.mp4          # NO clean wav, NO txt, NO manifest
+    ├── mix/<id>/        mix.wav  s1.mp4 s2.mp4  s1.pkl s2.pkl
+    └── remix/<id>/      mix.wav  s1.mp4 s2.mp4  s1.pkl s2.pkl   # NO clean wav, NO txt, NO manifest
 ```
 
 | Asset | dev | test |
 |-------|:---:|:---:|
 | `mix.wav`, `s1/s2.mp4` (model inputs) | ✓ | ✓ |
+| `s1/s2.pkl` precomputed face landmarks | ✓ | ✓ |
 | `s1/s2.txt` transcripts (CER) | ✓ | ✗ |
 | `remix` clean `s1/s2.wav` (SI-SDR/PESQ/STOI) | ✓ | ✗ |
 | `mix/remix_manifest.json` (speaker labels) | ✓ | ✗ |
@@ -115,6 +127,8 @@ Real-World-AVSE/track{1,2}/
 So **participants develop and self-score on `dev`** with the full metric suite; the organizers score the held-out `test`. On the released `test` (no transcripts/clean refs/manifest), CER and reference-based metrics cannot be computed locally, and `eval_real.py` has no manifest to enumerate clips or read speaker labels — test scoring is organizer-side, using organizer-held voiceprints (see §6.2).
 
 > **Note:** `dev` and `test` use **disjoint speaker sets**, so a voiceprint built on one split does not transfer to the other — each split is self-contained for enrollment.
+
+Each `s{1,2}.pkl` holds the **precomputed face landmarks** for that speaker's `s{1,2}.mp4`: a Python list with one entry per video frame, each entry either a `68×2` float32 array of facial landmark coordinates or `None` when no face was detected in that frame. They are shipped for both `dev` and `test` so participants can drive a landmark-based visual front end without re-running face detection. They are derived from the released mp4 and carry no ground-truth audio information. The baseline reader does not consume them — it decodes the mp4 directly (grayscale → resize 96 → crop 88) — so they are optional for the baseline and provided purely for convenience.
 
 The visual front end is shared with training: face mp4 → grayscale → resize to 96 → center-crop 88 → normalize (mean 0.421, std 0.165). ([look2hear/datas/real_test_dataset.py](look2hear/datas/real_test_dataset.py), [look2hear/datas/transform.py](look2hear/datas/transform.py))
 

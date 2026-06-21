@@ -45,7 +45,7 @@ SCENE=${3:-"both"}
 METRICS=${4:-"all"}
 GPUS=${5:-"0"}
 LIMIT=${6:-""}
-MODE=${7:-"enhance"}
+MODE=${7:-"eval"}
 SPLIT=${SPLIT:-"dev"}                   # default to dev (participant-facing split)
 SAVE_DIR=${SAVE_DIR:-"enhanced_out"}    # override via env: SAVE_DIR=... bash run_eval_real.sh
 ENROLL_CKPT=${ENROLL_CKPT:-""}          # precomputed voiceprints; empty => rebuild

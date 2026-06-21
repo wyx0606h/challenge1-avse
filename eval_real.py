@@ -83,6 +83,9 @@ def parse_args():
     p.add_argument("--gpus", default="0", help="CUDA_VISIBLE_DEVICES")
     p.add_argument("--limit", type=int, default=None,
                    help="Cap manifest entries per (track,scene) (smoke test)")
+    p.add_argument("--no_align_face", action="store_true",
+                   help="Disable landmark-based face alignment; use the legacy "
+                        "whole-face resize (for A/B comparison)")
     return p.parse_args()
 
 
@@ -255,7 +258,8 @@ def main():
     if args.num_shards > 1:
         items = items[args.shard_id::args.num_shards]
         print(f"Shard {args.shard_id}: {len(items)} of the items")
-    dataset = RealTestDataset(items, face_size=face_size, sample_rate=sr)
+    dataset = RealTestDataset(items, face_size=face_size, sample_rate=sr,
+                              align_face=not args.no_align_face)
 
     # 3. Metrics tracker (only when scoring).
     tracker = None

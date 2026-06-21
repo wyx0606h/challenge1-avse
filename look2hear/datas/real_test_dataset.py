@@ -27,6 +27,7 @@ Each item dict carries:
     text       : reference transcript (from s{1,2}.txt)
     wav_path   : the noisy mixture (mix.wav) -- model input
     face_path  : target speaker face mp4 (s{1,2}.mp4)
+    lm_path    : per-frame 68-pt landmark pickle (s{1,2}.pkl), for face align
     ref_path   : clean reference wav (remix only; None for mix)
 
 The whole-face ``.mp4`` (256x256, 25 fps) is decoded to grayscale, resized to
@@ -86,17 +87,23 @@ def _read_face_gray(path, size):
 
 
 def _fixed_face_box(landmarks):
-    """One fixed square crop box ``(left, top, side)`` for a whole clip.
+    """One fixed square crop box ``(left, top, side)`` for a whole clip, or
+    ``None`` if no frame has a valid detection.
 
     ``landmarks`` is a per-frame list of ``(68, 2)`` arrays (REAL-AVSE ``.pkl``,
-    coords in the original frame, 1:1 with the video frames). Uses the *median*
-    landmark extents across frames so the box is stable against per-frame jitter
-    (REAL faces barely move: centre std ~6 px). The square side is set so the
-    face spans ``_TARGET_FACE_FRAC`` of the crop, matching the vox2 training
+    coords in the original frame, 1:1 with the video frames). Frames where
+    detection failed are stored as ``None`` and skipped. Uses the *median*
+    landmark extents across valid frames so the box is stable against per-frame
+    jitter (REAL faces barely move: centre std ~6 px). The square side is set so
+    the face spans ``_TARGET_FACE_FRAC`` of the crop, matching the vox2 training
     composition (cf. detectface.py ``face2head``), then re-centred so the face
     centre lands at ``(_TARGET_CX, _TARGET_CY)`` of the box.
     """
-    A = np.stack([np.asarray(f, np.float32) for f in landmarks])  # (T, 68, 2)
+    valid = [np.asarray(f, np.float32) for f in landmarks
+             if f is not None and np.asarray(f).shape == (68, 2)]
+    if not valid:
+        return None
+    A = np.stack(valid)                                          # (Tv, 68, 2)
     x0 = np.median(A[:, :, 0].min(1)); x1 = np.median(A[:, :, 0].max(1))
     y0 = np.median(A[:, :, 1].min(1)); y1 = np.median(A[:, :, 1].max(1))
     cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
@@ -127,9 +134,15 @@ def _crop_square(gray, left, top, side, size):
 def _read_face_gray_aligned(mp4_path, pkl_path, size):
     """Decode ``mp4_path`` and crop each frame to the landmark-aligned square,
     returning a ``(T, size, size)`` grayscale array matching the vox2 face scale.
+
+    Returns ``None`` if the clip has no valid landmark detections, so the caller
+    can fall back to the legacy whole-face resize.
     """
     landmarks = pickle.load(open(pkl_path, "rb"))
-    left, top, side = _fixed_face_box(landmarks)
+    box = _fixed_face_box(landmarks)
+    if box is None:
+        return None
+    left, top, side = box
     cap = cv2.VideoCapture(mp4_path)
     frames = []
     while True:
@@ -160,23 +173,37 @@ class RealTestDataset(Dataset):
             constructed via :func:`build_items`.
         face_size: resize faces to this size before the val lip pipeline (96).
         sample_rate: audio sample rate (must be 16 kHz).
+        align_face: if True (default), re-crop each face to the vox2 training
+            composition using the clip's ``.pkl`` landmarks; if False, fall back
+            to the legacy whole-face resize (kept for A/B comparison).
     """
 
-    def __init__(self, items, face_size=96, sample_rate=SR):
+    def __init__(self, items, face_size=96, sample_rate=SR, align_face=True):
         super().__init__()
         if sample_rate != SR:
             raise ValueError(f"Only {SR} Hz is supported, got {sample_rate}")
         self.items = items
         self.face_size = int(face_size)
         self.sample_rate = sample_rate
+        self.align_face = bool(align_face)
         self.lip_pipeline = get_preprocessing_pipelines()["val"]
-        print(f"RealTestDataset: {len(self.items)} eval items")
+        self._warned_no_lm = False
+        print(f"RealTestDataset: {len(self.items)} eval items "
+              f"(align_face={self.align_face})")
 
     def __len__(self):
         return len(self.items)
 
-    def _read_mouth(self, face_path):
-        gray = _read_face_gray(face_path, self.face_size)        # (T, 96, 96)
+    def _read_mouth(self, face_path, lm_path=None):
+        gray = None
+        if self.align_face and lm_path and os.path.isfile(lm_path):
+            gray = _read_face_gray_aligned(face_path, lm_path, self.face_size)
+        if gray is None:                                         # no align / no landmarks
+            if self.align_face and not self._warned_no_lm:
+                print(f"[RealTestDataset] WARN: no usable landmarks ({lm_path}), "
+                      f"falling back to whole-face resize for some clips")
+                self._warned_no_lm = True
+            gray = _read_face_gray(face_path, self.face_size)    # (T, 96, 96)
         mouth = self.lip_pipeline(gray)                          # (T, 88, 88)
         return mouth.astype(np.float32)
 
@@ -186,7 +213,8 @@ class RealTestDataset(Dataset):
         if wav.ndim > 1:                                         # stereo -> mono
             wav = wav.mean(axis=1)
         mix = torch.from_numpy(wav)
-        mouth = torch.from_numpy(self._read_mouth(meta["face_path"]))
+        mouth = torch.from_numpy(self._read_mouth(meta["face_path"],
+                                                  meta.get("lm_path")))
         return mix, mouth, meta
 
 
@@ -209,6 +237,7 @@ def _expand_dir(entry, root, track, split, scene):
             "text": _read_text(os.path.join(clip_dir, f"{tag}.txt")),
             "wav_path": mix_wav,
             "face_path": os.path.join(clip_dir, f"{tag}.mp4"),
+            "lm_path": os.path.join(clip_dir, f"{tag}.pkl"),
             # remix ships clean refs (s1.wav/s2.wav); mix does not.
             "ref_path": ref if (scene == "remix" and os.path.isfile(ref)) else None,
         })
