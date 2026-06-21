@@ -75,10 +75,15 @@ python -m pip install -r requirements.txt
 
 # onnxruntime: default CPU build is in requirements.txt. For the GPU build
 # (faster DNSMOS), set GPU_ONNX=1 — falls back to CPU if the GPU wheel fails.
+# Pin 1.22.0: it is built against CUDA 12 / cuDNN 9, matching this env's
+# torch (cu126). The latest onnxruntime-gpu (1.27.x) needs CUDA 13 (libcudart
+# .so.13) and fails to import here. The GPU build borrows torch's bundled CUDA/
+# cuDNN libs, so any code path must `import torch` before onnxruntime (eval_real
+# .py already does). DNSMOS then runs on GPU automatically (see real_metrics.py).
 if [ "${GPU_ONNX:-0}" = "1" ]; then
-    echo "      Installing onnxruntime-gpu (GPU_ONNX=1) ..."
+    echo "      Installing onnxruntime-gpu==1.22.0 (GPU_ONNX=1) ..."
     python -m pip uninstall -y onnxruntime >/dev/null 2>&1 || true
-    python -m pip install "onnxruntime-gpu" || {
+    python -m pip install "onnxruntime-gpu==1.22.0" || {
         echo "      onnxruntime-gpu failed; keeping CPU onnxruntime."
         python -m pip install "onnxruntime"
     }

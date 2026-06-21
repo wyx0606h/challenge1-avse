@@ -60,6 +60,27 @@ export MODELSCOPE_OFFLINE=1
 IFS=',' read -ra GPU_ARR <<< "$GPUS"
 NUM_SHARDS=${#GPU_ARR[@]}
 
+# Cap CPU math-library threads to avoid oversubscription. The metric models
+# (UTMOS especially) fire many small CPU ops; with the BLAS/OpenMP defaults a
+# single process spawns one thread per logical core (40 here), and threading
+# overhead then DOMINATES -- measured UTMOS was 3.6 s/clip at 40 threads vs
+# 1.0 s/clip at 4. Under sharding it is worse: N shards x 40 threads all fight
+# over the same cores. So budget total threads ~= core count and split across
+# shards (floor, min 1). Override by exporting THREADS_PER_SHARD yourself.
+if [ -z "$THREADS_PER_SHARD" ]; then
+    NCORES=$(python -c "import os; print(os.cpu_count() or 8)" 2>/dev/null || echo 8)
+    THREADS_PER_SHARD=$(( NCORES / NUM_SHARDS ))
+    [ "$THREADS_PER_SHARD" -lt 1 ] && THREADS_PER_SHARD=1
+    # A single process does best around 4 threads, not all cores (see above).
+    [ "$NUM_SHARDS" -le 1 ] && [ "$THREADS_PER_SHARD" -gt 4 ] && THREADS_PER_SHARD=4
+fi
+export OMP_NUM_THREADS="$THREADS_PER_SHARD"
+export MKL_NUM_THREADS="$THREADS_PER_SHARD"
+export OPENBLAS_NUM_THREADS="$THREADS_PER_SHARD"
+export NUMEXPR_NUM_THREADS="$THREADS_PER_SHARD"
+export VECLIB_MAXIMUM_THREADS="$THREADS_PER_SHARD"
+export TOKENIZERS_PARALLELISM=false   # HF tokenizers fork-safety + no thread storm
+
 # Common args shared by every shard.
 COMMON="--track $TRACK --scene $SCENE --metrics $METRICS --mode $MODE --split $SPLIT --save_dir $SAVE_DIR"
 [ -n "$CKPT" ]        && COMMON="$COMMON --ckpt $CKPT"
@@ -74,6 +95,7 @@ echo "  track   : $TRACK   scene: $SCENE   metrics: $METRICS"
 echo "  split   : $SPLIT   mode: $MODE   save_dir: $SAVE_DIR"
 echo "  enroll  : ${ENROLL_CKPT:-<rebuild from clean sources>}"
 echo "  GPUs    : $GPUS   (shards: $NUM_SHARDS, offline mode)"
+echo "  threads : $THREADS_PER_SHARD per shard (OMP/MKL/BLAS capped)"
 echo "=================================================="
 
 if [ "$NUM_SHARDS" -le 1 ]; then

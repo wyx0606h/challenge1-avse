@@ -99,6 +99,7 @@ class RealMetricsTracker:
         # Lazy-loaded models.
         self._utmos = None
         self._dnsmos_fn = None
+        self._dnsmos_device_str = None  # resolved once on first DNSMOS call
         self._asr = None
         self._spk = None
         self._obj = None  # objective (reference-based) torchmetrics, remix only
@@ -189,17 +190,46 @@ class RealMetricsTracker:
                             verbose=False)
         return float(out)
 
+    def _dnsmos_device(self):
+        """Resolve the onnxruntime device string for DNSMOS, once.
+
+        Returns an explicit ``cuda:N`` only if the GPU build of onnxruntime
+        exposes CUDAExecutionProvider; otherwise ``cpu``. The index must be
+        explicit -- torchmetrics passes ``device.index`` straight into
+        ``OrtValue.ortvalue_from_numpy`` and ``provider_options``, and a bare
+        ``"cuda"`` resolves to ``index=None`` which breaks that path. Each shard
+        runs under its own CUDA_VISIBLE_DEVICES, so the visible GPU is always 0.
+
+        Requires ``import torch`` to have run first (it has, at module load) so
+        onnxruntime-gpu can borrow torch's bundled CUDA/cuDNN shared libraries.
+        """
+        if self._dnsmos_device_str is not None:
+            return self._dnsmos_device_str
+        dev = "cpu"
+        if str(self.device).startswith("cuda"):
+            try:
+                import onnxruntime as ort
+                if "CUDAExecutionProvider" in ort.get_available_providers():
+                    dev = "cuda:0"
+                else:
+                    print("[DNSMOS] CUDAExecutionProvider unavailable "
+                          "(install onnxruntime-gpu); running on CPU.")
+            except Exception as e:
+                print(f"[DNSMOS] onnxruntime probe failed ({e}); running on CPU.")
+        self._dnsmos_device_str = dev
+        return dev
+
     def dnsmos_scores(self, wav):
         """Return dict {p808, sig, bak, ovr}.
 
-        DNSMOS runs on the CPU onnxruntime build (the GPU build needs a matching
-        CUDA), so the waveform and the metric both stay on CPU regardless of
-        self.device -- explicit and robust rather than relying on a missing CUDA
-        provider to silently fall back.
+        Runs on GPU when onnxruntime-gpu exposes CUDAExecutionProvider (see
+        :meth:`_dnsmos_device`), else falls back to CPU. The waveform is fed as
+        a CPU 1-D tensor; torchmetrics moves it onto the ORT device internally.
         """
         fn = self._get_dnsmos()
         wav = self._as_wave_1d(wav)  # CPU 1-D
-        out = fn(wav, fs=self.sample_rate, personalized=False, device="cpu")
+        out = fn(wav, fs=self.sample_rate, personalized=False,
+                 device=self._dnsmos_device())
         out = [float(x) for x in out]
         return {"dnsmos_p808": out[0], "dnsmos_sig": out[1],
                 "dnsmos_bak": out[2], "dnsmos_ovr": out[3]}
