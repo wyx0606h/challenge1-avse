@@ -68,7 +68,8 @@ Fun-ASR/deepspeed_conf/
 Thumbs.db
 *.swp
 *~
+upload_to_hf.py
 
 # ---- Keep VSCode/Claude project settings? (uncomment to ignore) ----
-# .vscode/
-# .claude/
+.vscode/
+.claude/

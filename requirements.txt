@@ -43,4 +43,5 @@ transformers>=4.51
 onnxruntime>=1.17        # DNSMOS onnx (CPU). GPU DNSMOS: GPU_ONNX=1 bash install.sh -> onnxruntime-gpu==1.22.0 (CUDA12/cuDNN9)
 jiwer>=3.0
 kaldiio>=2.18
-huggingface-hub>=0.23      # download_models.sh fetches WeSpeaker weights from HF
+huggingface-hub>=0.23      # download_models.sh fetches WeSpeaker weights from HF; PyTorchModelHubMixin loads baseline ckpts
+safetensors>=0.4           # weights format for PyTorchModelHubMixin save/from_pretrained

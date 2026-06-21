@@ -11,6 +11,11 @@
 #   - DNSMOS           (no-reference P.835)     -> ~/.torchmetrics/DNSMOS  (3 onnx files)
 #   - Fun-ASR-Nano     (Chinese ASR for WER/CER)-> ~/.cache/modelscope/hub
 #   - WeSpeaker ResNet34-LM (speaker embedding) -> pretrained/wespeaker_cnceleb_resnet34
+#   - Lip-reading backbone (video branch init)  -> video_pretrain/frcnn_128_512.backbone.pth.tar
+#
+# The first four are EVALUATION metric weights; the lip-reading backbone is only
+# needed to TRAIN from scratch (train.py initialises the video branch from it).
+# It is skipped automatically if already present.
 #
 # Usage:
 #   bash download_models.sh
@@ -42,7 +47,7 @@ echo "=================================================="
 #    facebook/wav2vec2-base from HF. Running it once here primes both caches.
 # ---------------------------------------------------------------------------
 echo
-echo "[1/4] UTMOSv2 (MOS) weights + wav2vec2-base backbone ..."
+echo "[1/5] UTMOSv2 (MOS) weights + wav2vec2-base backbone ..."
 $PY - <<'PYEOF'
 import utmosv2
 # Triggers HF download of fold0_s42_best_model.pth and the wav2vec2-base backbone.
@@ -57,7 +62,7 @@ PYEOF
 #    1s signal so eval_real.py never needs the network.
 # ---------------------------------------------------------------------------
 echo
-echo "[2/4] DNSMOS onnx models -> ~/.torchmetrics/DNSMOS ..."
+echo "[2/5] DNSMOS onnx models -> ~/.torchmetrics/DNSMOS ..."
 $PY - <<'PYEOF'
 import torch
 from torchmetrics.functional.audio.dnsmos import deep_noise_suppression_mean_opinion_score
@@ -73,7 +78,7 @@ PYEOF
 #    cloned locally). Also pulls the fsmn-vad model used for long-form decoding.
 # ---------------------------------------------------------------------------
 echo
-echo "[3/4] Fun-ASR-Nano-2512 ASR weights -> ~/.cache/modelscope ..."
+echo "[3/5] Fun-ASR-Nano-2512 ASR weights -> ~/.cache/modelscope ..."
 $PY - <<PYEOF
 import torch
 from funasr import AutoModel
@@ -97,7 +102,7 @@ PYEOF
 #    look2hear/models/wespeaker_resnet34.py (no wespeaker install required).
 # ---------------------------------------------------------------------------
 echo
-echo "[4/4] WeSpeaker cnceleb-resnet34-LM -> pretrained/wespeaker_cnceleb_resnet34 ..."
+echo "[4/5] WeSpeaker cnceleb-resnet34-LM -> pretrained/wespeaker_cnceleb_resnet34 ..."
 WESPK_DIR="${PROJ_DIR}/pretrained/wespeaker_cnceleb_resnet34"
 mkdir -p "$WESPK_DIR"
 $PY - <<PYEOF
@@ -118,6 +123,31 @@ for fname in ["model_5.pt", "config.yaml"]:
 print("  WeSpeaker weights in:", dst)
 PYEOF
 
+# ---------------------------------------------------------------------------
+# 5. Lip-reading backbone (video-branch initialisation for TRAINING only).
+#    train.py initialises AV-ConvTasNet's frozen ResNet-34 lip encoder from
+#    video_pretrain/frcnn_128_512.backbone.pth.tar. Evaluation does NOT need it
+#    (the trained video weights live inside every checkpoint), so this step is
+#    only required to train from scratch. It is hosted on Google Drive and must
+#    be downloaded MANUALLY (Drive's large-file confirm/quota flow is brittle to
+#    script); this step only checks presence and prints the link if missing.
+# ---------------------------------------------------------------------------
+echo
+echo "[5/5] Lip-reading backbone (TRAIN-only) -> video_pretrain/frcnn_128_512.backbone.pth.tar ..."
+VIDEO_DIR="${PROJ_DIR}/video_pretrain"
+VIDEO_BACKBONE="${VIDEO_DIR}/frcnn_128_512.backbone.pth.tar"
+VIDEO_BACKBONE_URL="https://drive.google.com/file/d/13-T3nBnf21-lMKrV_XbH6Lf4vK2xU7lS/view"
+mkdir -p "$VIDEO_DIR"
+if [ -f "$VIDEO_BACKBONE" ]; then
+    echo "  already present, skipping: $VIDEO_BACKBONE"
+else
+    echo "  NOT found (needed only to train from scratch; evaluation does not use it)."
+    echo "  Download it manually from Google Drive:"
+    echo "      $VIDEO_BACKBONE_URL"
+    echo "  and place it at:"
+    echo "      $VIDEO_BACKBONE"
+fi
+
 echo
 echo "=================================================="
 echo "Done. Downloaded artifacts:"
@@ -125,4 +155,5 @@ echo "  UTMOSv2     : ~/.cache/utmosv2/models/fusion_stage3/fold0_s42_best_model
 echo "  DNSMOS      : ~/.torchmetrics/DNSMOS/*.onnx"
 echo "  Fun-ASR-Nano: ~/.cache/modelscope/hub/models/FunAudioLLM/Fun-ASR-Nano-2512"
 echo "  WeSpeaker   : ${PROJ_DIR}/pretrained/wespeaker_cnceleb_resnet34/model_5.pt"
+echo "  Video bkbn  : ${PROJ_DIR}/video_pretrain/frcnn_128_512.backbone.pth.tar (train only, MANUAL — see step 5)"
 echo "=================================================="

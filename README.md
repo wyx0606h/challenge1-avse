@@ -3,11 +3,10 @@
 **ISCSLP 2026 Special Session**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.7%20%7C%20cu126-EE4C2C.svg?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![Lightning](https://img.shields.io/badge/Lightning-2.2+-792EE5.svg?logo=lightning&logoColor=white)](https://lightning.ai/)
 [![ISCSLP 2026](https://img.shields.io/badge/ISCSLP-2026-1f6feb.svg)](#)
 [![Tracks](https://img.shields.io/badge/Tracks-Real--World%20%7C%20Visual%20Degradation-success.svg)](#)
+[![HF Track 1](https://img.shields.io/badge/🤗%20Model-Track%201-yellow.svg)](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track1)
+[![HF Track 2](https://img.shields.io/badge/🤗%20Model-Track%202-yellow.svg)](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track2)
 
 This repository hosts the official baseline system for the **Real-World AVSE Challenge** at ISCSLP 2026. It provides an end-to-end audio-visual speech enhancement (AVSE) pipeline — data preparation, an AV-ConvTasNet baseline model, training scripts, and a comprehensive offline evaluation suite — for two complementary tracks that push AVSE from the "clean video + synthetic speech" setting toward real-world deployment.
 
@@ -69,6 +68,24 @@ Defining files: [look2hear/models/av_convtasnet.py](look2hear/models/av_convtasn
 
 Entry points: [train.py](train.py), [run_train.sh](run_train.sh), configs in [configs/](configs/). The training pipeline is adapted from [Dolphin](https://github.com/JusperLee/Dolphin).
 
+**Training data (VoxCeleb2).** The configs read pre-built manifests from `DataPreProcess/vox2/{tr,cv,tt}/`. Build them once from a local VoxCeleb2 mixture set (`tr/cv/tt` each holding `mix/s1/s2` 16 kHz wavs) plus the whole-face crops:
+
+```bash
+python DataPreProcess/process_vox2.py \
+  --in_audio_dir  /path/to/vox2/wav16k/min \
+  --in_visual_dir /path/to/vox2/faces \
+  --visual_ext .mp4 \
+  --out_dir DataPreProcess/vox2
+```
+
+This writes `mix.json` / `s1.json` / `s2.json` per split (see [DataPreProcess/process_vox2.py](DataPreProcess/process_vox2.py) for the expected layout and filename convention).
+
+**Lip-reading backbone.** Training initialises the frozen video branch from `video_pretrain/frcnn_128_512.backbone.pth.tar` (≈ 259 MB). Download it manually from Google Drive and place it at that path — it is **not** needed for evaluation, since the trained video weights are baked into every checkpoint:
+
+> **Lip-reading backbone:** <https://drive.google.com/file/d/13-T3nBnf21-lMKrV_XbH6Lf4vK2xU7lS/view> → `video_pretrain/frcnn_128_512.backbone.pth.tar`
+
+`download_models.sh` (step 5) checks for this file and prints the link if it is missing.
+
 ```bash
 # Track 1 (clean video)
 python train.py --conf_dir configs/track1_av_convtasnet.yml
@@ -76,7 +93,30 @@ python train.py --conf_dir configs/track1_av_convtasnet.yml
 python train.py --conf_dir configs/track2_av_convtasnet.yml
 ```
 
-Checkpoints are PyTorch-Lightning files (`epoch=*.ckpt`, `last.ckpt`) whose weights live under an `audio_model.` prefix; `best_model.pth` is a self-describing `serialize()` payload (`model_name` + `state_dict` + `model_args`). The evaluation scripts rebuild the model from `conf.yml` and load either format automatically.
+**Skip training — use the released baseline checkpoints.** Both baseline models are published on HuggingFace with the standard [`PyTorchModelHubMixin`](https://huggingface.co/docs/huggingface_hub/guides/integrations) layout (`config.json` + `model.safetensors`), so they load from a **repo id alone** — weights download and cache on first use, no manual file placement:
+
+| Track | HuggingFace repo |
+|-------|------------------|
+| Track 1 | [`JusperLee/Real-World-AVSE-Baseline-Track1`](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track1) |
+| Track 2 | [`JusperLee/Real-World-AVSE-Baseline-Track2`](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track2) |
+
+```bash
+# One-time: the repos are private — log in and make sure you've been granted access
+huggingface-cli login            # or: export HF_TOKEN=...
+
+# Reproduce the baseline — weights auto-download from HuggingFace on first run
+python eval_real.py --ckpt JusperLee/Real-World-AVSE-Baseline-Track1 \
+  --track track1 --split dev --metrics all --mode both --save_dir enhanced_out
+```
+
+Or load it directly in Python — the trained video encoder is bundled in the weights, so no lip-reading backbone file is needed:
+
+```python
+from look2hear.models import AV_ConvTasNet
+model = AV_ConvTasNet.from_pretrained("JusperLee/Real-World-AVSE-Baseline-Track1").eval()
+```
+
+`--ckpt` also accepts a local Lightning `*.ckpt` or a local `best_model.pth`, so existing workflows are unchanged.
 
 ---
 
@@ -157,6 +197,9 @@ What `download_models.sh` fetches and where it caches:
 | DNSMOS (3 onnx) | No-reference P.835 | `~/.torchmetrics/DNSMOS` |
 | Fun-ASR-Nano-2512 | Chinese ASR (CER) | `~/.cache/modelscope/hub` |
 | WeSpeaker cnceleb-resnet34-LM | Speaker embedding | `pretrained/wespeaker_cnceleb_resnet34/` |
+| Lip-reading backbone (≈ 259 MB) | Video-branch init — **training only** | `video_pretrain/frcnn_128_512.backbone.pth.tar` |
+
+The first four are evaluation-metric weights, fetched automatically. The lip-reading backbone is only needed to train from scratch and must be **downloaded manually** from Google Drive — get it from <https://drive.google.com/file/d/13-T3nBnf21-lMKrV_XbH6Lf4vK2xU7lS/view> and place it at `video_pretrain/frcnn_128_512.backbone.pth.tar`. `download_models.sh` checks for it and prints the link if missing.
 
 Key dependency versions are pinned in [requirements.txt](requirements.txt) (torch 2.7.1/cu126, torchmetrics, funasr, onnxruntime, transformers, modelscope). DNSMOS uses the **CPU** onnxruntime build by default (the onnx models are tiny); pass `GPU_ONNX=1 bash install.sh` only if you have a matching CUDA.
 
@@ -261,6 +304,46 @@ Three CSVs are written next to `--out_csv` (default `<exp_dir>/results/real_metr
 - `real_metrics.csv` — per-item rows (key, track, scene, speaker_id, all metrics, ref/hyp text).
 - `real_metrics_<track>_<scene>.csv` — per-group per-item rows.
 - `real_metrics_summary.csv` — mean per metric, overall and per (track, scene) group.
+
+### 6.7 Submission format
+
+Submit your enhanced audio in the **same directory layout that `--mode enhance` produces** — mirroring the corpus tree, one enhanced wav per target speaker:
+
+```
+<submission>/track{1,2}/<split>/{mix,remix}/<clip_id>/
+├── s1.wav        # enhanced estimate for target speaker s1
+└── s2.wav        # enhanced estimate for target speaker s2
+```
+
+For example, `track2/test/mix/000356/s1.wav` is your estimate of speaker **s1** in clip `000356`, produced from that speaker's lip video. Requirements:
+
+- **One `s1.wav` and one `s2.wav` per clip directory**, for every clip in the evaluated split (both `mix` and `remix` scenes).
+- **16 kHz, mono, WAV.** Float (`PCM_F`) or 16-bit PCM are both accepted; the baseline writes 32-bit float so re-scoring reproduces the in-memory numbers exactly.
+- **Keep the `clip_id` directory names and the `s1`/`s2` tags unchanged** — scoring matches files to references and speaker labels by this path. Length should match the input mixture.
+
+The simplest way to generate a correctly-structured submission is to run the baseline (or your model in the same harness) with `--mode enhance --save_dir <submission>`; the resulting `enhanced_out/`-style tree *is* the submission.
+
+### 6.8 Baseline results (dev)
+
+Reference scores from the released checkpoints on the **dev** split (`--split dev --metrics all`). SI-SDR / PESQ / STOI are reference-based, so they are reported on `remix` only (the `mix` scene has no clean ground truth); each track's `overall` row therefore carries the same reference-based values as its `remix` row. Speaker similarity (`spk_sim`) uses the dev voiceprints; CER is from Fun-ASR-Nano.
+
+**Track 1**
+
+| scope | n | SI-SDR | PESQ | STOI | UTMOS | DNSMOS p808 | DNSMOS sig | DNSMOS bak | DNSMOS ovr | CER | spk_sim |
+|-------|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **overall** | 4284 | −1.61 | 1.21 | 0.464 | 1.022 | 2.260 | 1.849 | 2.301 | 1.493 | 0.725 | 0.364 |
+| track1 / mix | 2484 | — | — | — | 1.009 | 2.291 | 1.925 | 2.404 | 1.565 | 0.673 | 0.383 |
+| track1 / remix | 1800 | −1.61 | 1.21 | 0.464 | 1.040 | 2.217 | 1.744 | 2.159 | 1.392 | 0.798 | 0.337 |
+
+**Track 2**
+
+| scope | n | SI-SDR | PESQ | STOI | UTMOS | DNSMOS p808 | DNSMOS sig | DNSMOS bak | DNSMOS ovr | CER | spk_sim |
+|-------|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **overall** | 5250 | −2.70 | 1.243 | 0.469 | 1.174 | 2.324 | 1.655 | 1.658 | 1.356 | 0.915 | 0.370 |
+| track2 / mix | 3054 | — | — | — | 1.167 | 2.345 | 1.685 | 1.659 | 1.384 | 0.815 | 0.383 |
+| track2 / remix | 2196 | −2.70 | 1.243 | 0.469 | 1.183 | 2.294 | 1.613 | 1.657 | 1.319 | 1.053 | 0.352 |
+
+These are intentionally modest — the baseline highlights the real-world domain gap rather than a tuned system. CER is a fraction (lower is better); SI-SDR is in dB.
 
 ---
 

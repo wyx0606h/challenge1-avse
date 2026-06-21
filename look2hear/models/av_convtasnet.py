@@ -660,6 +660,17 @@ class AV_ConvTasNet(BaseModel):
             causal=causal,
         )
 
+        # Keep ``video_pretrain`` OUT of the HuggingFace config. PyTorchModelHubMixin
+        # captures every __init__ argument into config.json; video_pretrain is just
+        # a path to the backbone used to *initialise* a fresh model, and the trained
+        # video weights already live in the state_dict. Persisting a local training
+        # path would make from_pretrained() try to load a file that does not exist
+        # on the downloader's machine. Drop it so the rebuilt model uses the default
+        # (video_pretrain=None) and takes its video weights from the checkpoint.
+        cfg = getattr(self, "_hub_mixin_config", None)
+        if isinstance(cfg, dict):
+            cfg.pop("video_pretrain", None)
+
     def forward(self, x, mouth):
         """
         Args:

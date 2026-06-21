@@ -45,7 +45,11 @@ def parse_args():
                    default="Experiments/Track1-AVConvTasNet-Baseline/conf.yml",
                    help="Config yaml (for audionet_config to rebuild the model)")
     p.add_argument("--ckpt", default=None,
-                   help="Checkpoint path. Default: latest epoch=*.ckpt next to conf.")
+                   help="Checkpoint source: a local Lightning *.ckpt, a local "
+                        "serialize best_model.pth, OR a HuggingFace repo id "
+                        "(e.g. JusperLee/Real-World-AVSE-Baseline-Track1) whose "
+                        "config.json + model.safetensors are downloaded on first "
+                        "use. Default: latest epoch=*.ckpt next to conf.")
     p.add_argument("--data_root", default=REAL_AVSE_ROOT,
                    help="REAL-AVSE corpus root (holds track1/ and track2/)")
     p.add_argument("--track", default="both", choices=["track1", "track2", "both"])
@@ -72,7 +76,7 @@ def parse_args():
                    help="Dir for enhanced wavs (mirrors corpus layout). "
                         "Required for --mode enhance/eval.")
     p.add_argument("--out_csv", default=None,
-                   help="Per-item CSV path. Default: <exp_dir>/results/real_metrics.csv")
+                   help="Per-item CSV path. Default: eval_results/<split>/real_metrics.csv")
     p.add_argument("--num_shards", type=int, default=1,
                    help="Split the item list into N shards for multi-GPU parallel runs")
     p.add_argument("--shard_id", type=int, default=0,
@@ -107,6 +111,42 @@ def find_latest_ckpt(conf_dir):
     if not cands:
         raise FileNotFoundError(f"No checkpoint found in {exp_dir}")
     return max(cands, key=os.path.getmtime)
+
+
+def is_hf_repo_id(s):
+    """True if ``s`` looks like a HuggingFace ``org/name`` repo id (not a local
+    path and not a checkpoint filename), e.g.
+    ``"JusperLee/Real-World-AVSE-Baseline-Track1"``."""
+    import re
+    return (
+        isinstance(s, str)
+        and not os.path.exists(s)
+        and re.fullmatch(r"[\w.-]+/[\w.-]+", s) is not None
+        and not s.endswith((".ckpt", ".pth", ".pt", ".tar"))
+    )
+
+
+def load_model_hf_or_serialize(ckpt, conf, device):
+    """Load the model from a HuggingFace repo id OR a local serialize() payload.
+
+    * HF repo id (``org/name``) -> ``from_pretrained`` (the PyTorchModelHubMixin
+      path): downloads ``config.json`` + ``model.safetensors`` and rebuilds the
+      exact architecture. Auth-aware, so private repos use the cached HF token.
+    * local ``best_model.pth`` -> legacy ``from_pretrain``: a self-describing
+      ``{model_name, state_dict, model_args}`` payload.
+
+    Either way the trained video-encoder weights are inside the checkpoint, so no
+    external lip-reading backbone is needed (``video_pretrain`` is not in the HF
+    config; the local serialize path forces it to ``None``).
+    """
+    model_cls = getattr(look2hear.models, conf["audionet"]["audionet_name"])
+    if is_hf_repo_id(ckpt):
+        model = model_cls.from_pretrained(ckpt)        # mixin: config + safetensors
+        print(f"Loaded HF:{ckpt} via from_pretrained (config.json + safetensors)")
+    else:
+        model = model_cls.from_pretrain(ckpt, video_pretrain=None)   # local payload
+        print(f"Loaded {os.path.basename(ckpt)} via from_pretrain (serialize format)")
+    return model.eval().to(device)
 
 
 def load_model(conf, ckpt_path, device):
@@ -208,8 +248,11 @@ def shard_csv_path(out_csv, num_shards, shard_id):
 def main():
     args = parse_args()
 
-    exp_dir = os.path.dirname(os.path.abspath(args.conf_dir))
-    out_csv = args.out_csv or os.path.join(exp_dir, "results", "real_metrics.csv")
+    # Output CSVs go to a standalone eval_results/ folder (NOT the experiment
+    # dir), keyed by split, so the folder name never collides with the data
+    # track. Override the exact path with --out_csv.
+    out_csv = args.out_csv or os.path.join("eval_results", args.split,
+                                           "real_metrics.csv")
 
     # Merge-only: combine per-shard CSVs into the final tables and exit.
     if args.merge_shards:
@@ -247,8 +290,15 @@ def main():
     # 1. Model (skipped in eval-only mode).
     model = None
     if need_model:
+        # Three checkpoint sources, auto-detected from --ckpt:
+        #   * HF repo id ("org/name")        -> from_pretrained (config + safetensors)
+        #   * local serialize best_model.pth -> from_pretrain (self-describing)
+        #   * local Lightning *.ckpt / none  -> rebuild from conf.yml + strip prefix
         ckpt = args.ckpt or find_latest_ckpt(args.conf_dir)
-        model = load_model(conf, ckpt, device)
+        if is_hf_repo_id(ckpt) or (ckpt.endswith(".pth") and os.path.isfile(ckpt)):
+            model = load_model_hf_or_serialize(ckpt, conf, device)
+        else:
+            model = load_model(conf, ckpt, device)
 
     # 2. Data (read straight from the corpus tree), then shard.
     tracks = ("track1", "track2") if args.track == "both" else (args.track,)

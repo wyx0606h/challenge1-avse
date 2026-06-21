@@ -3,13 +3,31 @@ Base model class for all models
 """
 import torch
 import torch.nn as nn
+from huggingface_hub import PyTorchModelHubMixin
 
 
-class BaseModel(nn.Module):
+class BaseModel(
+    nn.Module,
+    PyTorchModelHubMixin,
+    repo_url="https://github.com/Real-World-AVSE/Baseline",
+    pipeline_tag="audio-to-audio",
+    license="apache-2.0",
+):
     """
-    Base class for all models
+    Base class for all models.
 
-    All models should inherit from this class and implement the forward method.
+    Inherits :class:`huggingface_hub.PyTorchModelHubMixin`, which gives every
+    subclass the standard ``save_pretrained`` / ``from_pretrained`` /
+    ``push_to_hub`` API. Uploaded repos use the community-standard layout
+    (``config.json`` + ``model.safetensors`` + ``README.md``): the mixin captures
+    the subclass ``__init__`` arguments into ``config.json`` and stores weights as
+    safetensors, so a model rebuilds from a HuggingFace repo id alone, e.g.::
+
+        AV_ConvTasNet.from_pretrained("JusperLee/Real-World-AVSE-Baseline-Track1")
+
+    The legacy :meth:`from_pretrain` (no ``d``) is kept for loading LOCAL
+    checkpoints in the project's own formats -- a Lightning ``*.ckpt`` or a
+    ``serialize()`` ``best_model.pth`` -- which the mixin does not understand.
     """
 
     def __init__(self, sample_rate=16000):
@@ -47,14 +65,20 @@ class BaseModel(nn.Module):
     @classmethod
     def from_pretrain(cls, path, *args, **kwargs):
         """
-        Load pretrained model
+        Load a model from a LOCAL checkpoint in the project's own formats.
+
+        Handles a ``serialize()`` payload (``{model_name, state_dict, model_args}``,
+        e.g. ``best_model.pth``) or a bare/legacy ``state_dict``. For loading from
+        a HuggingFace repo (``config.json`` + safetensors) use the mixin's
+        :meth:`from_pretrained` (with a ``d``) instead.
 
         Args:
-            path: Path to checkpoint
-            *args, **kwargs: Additional arguments for model initialization
+            path: local checkpoint path.
+            *args, **kwargs: extra arguments forwarded to the constructor,
+                overriding the saved ``model_args``.
 
         Returns:
-            model: Loaded model
+            model: the loaded model.
         """
         checkpoint = torch.load(path, map_location='cpu')
 
