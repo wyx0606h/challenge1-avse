@@ -17,7 +17,7 @@ This repository hosts the official baseline system for the **Real-World AVSE Cha
 Audio-only speech enhancement still struggles under low SNR, strong reverberation, and overlapping speakers. A speaker's lip movements and facial cues are tied to speech content and are immune to acoustic noise, which makes **audio-visual** speech enhancement one of the most promising directions in the field. Yet a large gap remains between academic benchmarks and real deployment:
 
 - Mainstream datasets follow a *clean-video + additive-mixture* paradigm that misses the natural speech overlap, device variability, and acoustic complexity of real rooms.
-- The visual stream in practice is often imperfect — occlusion, side views, motion blur, lighting changes, low resolution, dropped frames, even total loss — and model robustness under these conditions is rarely studied systematically.
+- The visual stream in practice is often imperfect: occlusion, side views, motion blur, lighting changes, low resolution, dropped frames, and even total loss. Model robustness under these conditions is rarely studied systematically.
 
 This challenge tackles both gaps through two tracks:
 
