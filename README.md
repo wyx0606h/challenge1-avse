@@ -8,7 +8,7 @@
 [![HF Track 1](https://img.shields.io/badge/🤗%20Model-Track%201-yellow.svg)](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track1)
 [![HF Track 2](https://img.shields.io/badge/🤗%20Model-Track%202-yellow.svg)](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track2)
 
-This repository hosts the official baseline system for the **Real-World AVSE Challenge** at ISCSLP 2026. It provides an end-to-end audio-visual speech enhancement (AVSE) pipeline — data preparation, an AV-ConvTasNet baseline model, training scripts, and a comprehensive offline evaluation suite — for two complementary tracks that push AVSE from the "clean video + synthetic speech" setting toward real-world deployment.
+This repository hosts the official baseline system for the **Real-World AVSE Challenge** at ISCSLP 2026. It provides an end-to-end audio-visual speech enhancement (AVSE) pipeline — data preparation, an AV-ConvTasNet baseline model, training scripts, and a comprehensive offline evaluation suite — for two complementary tracks that push AVSE from the "clean video + additive mixing" setting toward real-world deployment.
 
 ---
 
@@ -16,7 +16,7 @@ This repository hosts the official baseline system for the **Real-World AVSE Cha
 
 Audio-only speech enhancement still struggles under low SNR, strong reverberation, and overlapping speakers. A speaker's lip movements and facial cues are tied to speech content and are immune to acoustic noise, which makes **audio-visual** speech enhancement one of the most promising directions in the field. Yet a large gap remains between academic benchmarks and real deployment:
 
-- Mainstream datasets follow a *clean-video + synthetic-mixture* paradigm that misses the natural speech overlap, device variability, and acoustic complexity of real rooms.
+- Mainstream datasets follow a *clean-video + additive-mixture* paradigm that misses the natural speech overlap, device variability, and acoustic complexity of real rooms.
 - The visual stream in practice is often imperfect — occlusion, side views, motion blur, lighting changes, low resolution, dropped frames, even total loss — and model robustness under these conditions is rarely studied systematically.
 
 This challenge tackles both gaps through two tracks:
