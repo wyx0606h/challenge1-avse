@@ -45,6 +45,19 @@ preprocess/
 DataPreProcess/vox2/
 Experiments/
 enhanced_out/
+enhanced_out*/
+eval_results/
+submissions/
+
+# ---- Challenge data (never commit organizer or third-party corpora) ----
+/Real-World-AVSE/
+/REAL-AVSE/
+/datasets/
+/data/
+
+# ---- Codex/local workspace scratch directories ----
+/outputs/
+/work/
 
 # ---- Vendored third-party repo not used by the baseline ----
 # wespeaker: architecture is reproduced in look2hear/models/wespeaker_resnet34.py;
