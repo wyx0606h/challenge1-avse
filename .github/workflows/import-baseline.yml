@@ -1,0 +1,32 @@
+name: Import official Real-World AVSE baseline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/import-baseline.yml
+
+permissions:
+  contents: write
+
+jobs:
+  import-baseline:
+    if: github.event.head_commit.message == 'Bootstrap official baseline import'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Import upstream history and create development branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/Real-World-AVSE/Baseline.git
+          git fetch upstream main
+          git checkout -b codex/bootstrap-track2
+          git merge upstream/main --allow-unrelated-histories --no-edit
+          git push origin codex/bootstrap-track2
