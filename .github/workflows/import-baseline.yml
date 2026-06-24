@@ -1,18 +1,13 @@
 name: Import official Real-World AVSE baseline
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/import-baseline.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   import-baseline:
-    if: github.event.head_commit.message == 'Bootstrap official baseline import'
     runs-on: ubuntu-latest
     steps:
       - name: Check out target repository
