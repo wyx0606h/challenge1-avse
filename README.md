@@ -8,6 +8,141 @@
 [![HF Track 1](https://img.shields.io/badge/🤗%20Model-Track%201-yellow.svg)](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track1)
 [![HF Track 2](https://img.shields.io/badge/🤗%20Model-Track%202-yellow.svg)](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track2)
 
+## Team workspace status
+
+This repository preserves the official Real-World AVSE baseline and adds a
+team-facing reproducibility and experiment workflow. The official baseline
+implementation remains the reference layer; research changes must be developed
+on separate branches and compared against a recorded baseline run.
+
+Current team status:
+
+| Item | Status |
+|---|---|
+| Official baseline source imported | Completed |
+| Track 2 setup/data validation tools | Completed |
+| Server environment | TODO — not yet audited on the target server |
+| Official challenge `dev` access | TODO — team registration is pending |
+| Training data source and license | TODO — not yet confirmed |
+| Hugging Face checkpoint access | TODO — account authorization must be confirmed |
+| Baseline smoke test on real challenge data | TODO — blocked by data and environment |
+| Full baseline reproduction | TODO — no team reproduction result is claimed yet |
+| Available compute | Expected: 3× RTX 4090 + 1× RTX 5090; driver, VRAM, CPU, RAM, disk, and mixed-GPU compatibility are TODO |
+
+Do not interpret the reference scores later in this README as team reproduction
+results. A result is considered reproduced only after it has a recorded Git
+commit, configuration, checkpoint identity, data version, random seed, command,
+environment snapshot, logs, and complete metrics.
+
+### Team workflow
+
+```text
+Clone repository
+→ create a personal or experiment branch
+→ configure the environment
+→ prepare and audit data
+→ reproduce the unchanged baseline
+→ record baseline metrics and logs
+→ freeze the baseline reproduction commit
+→ create one branch per research change
+→ inspect git diff
+→ run a small sanity check
+→ run the formal experiment
+→ record configuration, logs, metrics, and checkpoint path
+→ update experiment documentation
+→ commit and push the experiment branch
+→ merge only after review and validation
+```
+
+Repository collaboration documents:
+
+- [AGENTS.md](AGENTS.md) — rules for human and automated contributors.
+- [EXPERIMENTS.md](EXPERIMENTS.md) — experiment index and required metadata.
+- [docs/experiment-template.md](docs/experiment-template.md) — copyable
+  per-experiment record.
+- [docs/TRACK2_CHALLENGE_GUIDE_ZH.md](docs/TRACK2_CHALLENGE_GUIDE_ZH.md) —
+  Track 2 reproduction guide.
+- [UPSTREAM.md](UPSTREAM.md) — official baseline provenance and upstream sync.
+
+### Storage boundaries
+
+The Git repository stores source code, configurations, documentation, and small
+metadata only. Keep the following outside normal Git history:
+
+| Asset | Recommended location | Git policy |
+|---|---|---|
+| Training/challenge data | External shared storage | Never commit |
+| Pretrained and trained weights | External model storage or ignored local directory | Never commit |
+| Checkpoints and training logs | External experiment root | Never commit |
+| Enhanced audio and submissions | External output root | Never commit |
+| Experiment records and small metric summaries | `EXPERIMENTS.md`, `docs/experiments/`, or another reviewed documentation path | Commit after verification |
+
+The current training code writes under `Experiments/` by default. That directory
+is ignored, but on the server the preferred long-term output root and storage
+quota are **TODO**. Do not hard-code a personal server path into tracked files.
+
+### Environment variables and Hugging Face access
+
+There is no `HF_ACCESS` variable in the codebase. `HF_ACCESS` is only a status
+label meaning “has the user obtained access to the required Hugging Face
+repository?” Hugging Face libraries use their standard authentication:
+
+```bash
+huggingface-cli login
+# or provide HF_TOKEN through the shell/job secret mechanism
+export HF_TOKEN=<token>
+```
+
+Never put a real token in Git, YAML configuration, shell scripts, notebooks, or
+experiment records. An optional [.env.example](.env.example) documents variable
+names only; `.env` is ignored and is not loaded automatically by this project.
+
+Common runtime overrides include:
+
+```bash
+export DATA_ROOT=/external/path/to/Real-World-AVSE
+export SAVE_DIR=/external/path/to/outputs
+export ENROLL_CKPT=/external/path/to/enroll_dev.pt
+```
+
+The exact server paths are **TODO**. Verify them after the server repository,
+data, and storage layout are available.
+
+### Baseline reproduction checklist
+
+1. Confirm the target branch and a clean `git status`.
+2. Record `git rev-parse HEAD`.
+3. Audit server GPU, driver, CUDA, Python, PyTorch, CPU, RAM, and disk.
+4. Install the isolated environment using the instructions below.
+5. Confirm challenge registration and data access; do not assume `dev` assets.
+6. Confirm the training data source, license, and speaker-disjoint splits.
+7. Authenticate to Hugging Face if the selected checkpoint is gated.
+8. Run `tools/check_track2_setup.py`.
+9. Run the one-item-per-scene smoke test.
+10. Run the complete baseline only after the smoke test succeeds.
+11. Record the run in `EXPERIMENTS.md` and a copied experiment template.
+
+Useful commands after the required assets exist:
+
+```bash
+# Environment and optional training-asset checks
+python tools/check_track2_setup.py --check-env
+python tools/check_track2_setup.py --check-training-assets
+
+# Challenge data audit (DATA_ROOT is TODO until the team receives the data)
+python tools/check_track2_setup.py --data-root "$DATA_ROOT"
+
+# Minimal Track 2 inference check
+DATA_ROOT="$DATA_ROOT" GPU=0 bash scripts/smoke_track2.sh
+```
+
+The current scripts contain upstream machine defaults and fixed GPU lists.
+Treat those as reference defaults, not as the team server configuration.
+Server-specific cleanup is a separate code change and must not be mixed into a
+documentation-only baseline record.
+
+---
+
 This repository hosts the official baseline system for the **Real-World AVSE Challenge** at ISCSLP 2026. It provides an end-to-end audio-visual speech enhancement (AVSE) pipeline — data preparation, an AV-ConvTasNet baseline model, training scripts, and a comprehensive offline evaluation suite — for two complementary tracks that push AVSE from the "clean video + additive mixing" setting toward real-world deployment.
 
 ---
@@ -101,7 +236,7 @@ python train.py --conf_dir configs/track2_av_convtasnet.yml
 | Track 2 | [`JusperLee/Real-World-AVSE-Baseline-Track2`](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track2) |
 
 ```bash
-# One-time: the repos are private — log in and make sure you've been granted access
+# One-time: the repos may be gated — log in and confirm that access is granted
 huggingface-cli login            # or: export HF_TOKEN=...
 
 # Reproduce the baseline — weights auto-download from HuggingFace on first run
