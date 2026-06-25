@@ -21,7 +21,11 @@ artifacts have been checked, and complete metrics have been recorded.
 
 | ID | Name | Status | Branch | Commit | Parent | Result summary | Detailed record |
 |---|---|---|---|---|---|---|---|
-| EXP-001 | Official Track 2 baseline reproduction | Planned | `exp/baseline-reproduction` | TODO | Official baseline; exact team freeze commit TODO | No team result yet | TODO |
+| EXP-001 | Official Track 2 baseline reproduction | Planned | `exp/baseline-reproduction` | TODO | `baseline/track2-source-v1` | No team result yet | TODO |
+
+`baseline/track2-source-v1` freezes the source code and collaboration workflow.
+It is not an experiment result and does not claim reproduction of the official
+metrics.
 
 ## Current blockers and TODOs
 
@@ -37,8 +41,9 @@ artifacts have been checked, and complete metrics have been recorded.
   - mixed RTX 4090/RTX 5090 DDP compatibility.
 - TODO: confirm Hugging Face authorization for the selected baseline model.
 - TODO: define external data, checkpoint, log, prediction, and submission roots.
-- TODO: freeze the exact baseline commit and evaluation protocol, including
-  face-alignment behavior and metric model versions.
+- Source baseline commit: frozen by `baseline/track2-source-v1`.
+- TODO: freeze the evaluated checkpoint identity and evaluation protocol,
+  including face-alignment behavior and metric model versions.
 
 ## Required metadata for every experiment
 
@@ -105,7 +110,8 @@ replace it only with verified information.
 
 EXP-001 may become `Completed` only when:
 
-1. the exact Git commit and unchanged baseline configuration are recorded;
+1. the immutable source tag, exact Git commit, and unchanged baseline
+   configuration are recorded;
 2. the environment and hardware inventory are captured;
 3. data access, counts, paths, and license/status are documented;
 4. Hugging Face checkpoint identity or local checkpoint checksum is recorded;
