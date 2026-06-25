@@ -21,6 +21,7 @@ Current team status:
 |---|---|
 | Official baseline source imported | Completed |
 | Track 2 setup/data validation tools | Completed |
+| Stable source baseline | `main` at tag `baseline/track2-source-v1` after the repository-organization merge |
 | Server environment | TODO — not yet audited on the target server |
 | Official challenge `dev` access | TODO — team registration is pending |
 | Training data source and license | TODO — not yet confirmed |
@@ -34,11 +35,37 @@ results. A result is considered reproduced only after it has a recorded Git
 commit, configuration, checkpoint identity, data version, random seed, command,
 environment snapshot, logs, and complete metrics.
 
+### Branch and baseline policy
+
+The repository uses two different kinds of stability:
+
+- `main` is the reviewed stable branch. Direct development on `main` is
+  forbidden.
+- `baseline/track2-source-v1` is an immutable tag that preserves the exact
+  official-source-plus-workflow starting point. Moving or recreating this tag
+  is forbidden.
+- `codex/bootstrap-track2` is an archival bootstrap branch. It documents the
+  one-time official baseline import and is not a continuing experiment branch.
+- `exp/*` branches contain baseline reproduction or one focused research
+  change. New experiments start from the immutable baseline tag or the
+  corresponding reviewed `main` commit.
+
+A successful experiment does not modify the baseline tag. It must first record
+its code, configuration, data, seed, environment, checkpoint, logs, and metrics.
+Only an explicitly reviewed and validated change may later be considered for
+`main`; failed or inconclusive experiments remain recorded on their own
+branches and are not merged.
+
+The source baseline tag does **not** mean that the team has reproduced the
+official score. Baseline metric reproduction is tracked separately as
+`EXP-001`.
+
 ### Team workflow
 
 ```text
 Clone repository
-→ create a personal or experiment branch
+→ check out baseline/track2-source-v1 or reviewed main
+→ create a personal or exp/* branch
 → configure the environment
 → prepare and audit data
 → reproduce the unchanged baseline
@@ -111,7 +138,8 @@ data, and storage layout are available.
 ### Baseline reproduction checklist
 
 1. Confirm the target branch and a clean `git status`.
-2. Record `git rev-parse HEAD`.
+2. Confirm the parent is `baseline/track2-source-v1` or its reviewed `main`
+   commit and record `git rev-parse HEAD`.
 3. Audit server GPU, driver, CUDA, Python, PyTorch, CPU, RAM, and disk.
 4. Install the isolated environment using the instructions below.
 5. Confirm challenge registration and data access; do not assume `dev` assets.

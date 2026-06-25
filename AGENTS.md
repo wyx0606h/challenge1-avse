@@ -18,6 +18,10 @@ The team has not yet claimed a baseline reproduction. Challenge `dev` access,
 training data, licenses, final server paths, and the full server hardware
 inventory are **TODO / pending confirmation**.
 
+The repository source baseline is frozen by the immutable tag
+`baseline/track2-source-v1`. This tag records source code and collaboration
+workflow only; it does not claim that official metrics have been reproduced.
+
 ## Repository map
 
 - `look2hear/`: model, data, loss, metric, system, and utility code.
@@ -40,9 +44,15 @@ small tracked experiment reports under `docs/experiments/` when needed.
 ## Baseline protection
 
 - The official upstream reference commit is documented in `UPSTREAM.md`.
-- Do not edit `main` directly.
+- `main` is the reviewed stable branch. Do not edit it directly.
+- `baseline/track2-source-v1` is the immutable source baseline. Never move,
+  delete, or recreate it at another commit.
+- `codex/bootstrap-track2` is archival history for the one-time import. Do not
+  use it as a rolling experiment branch.
 - Do not overwrite or silently reinterpret the official baseline.
 - Baseline reproduction and research changes must use separate branches.
+- Create new experiments from `baseline/track2-source-v1` or the matching
+  reviewed `main` commit.
 - Every experiment must identify the baseline commit it starts from.
 - A documentation cleanup must not change model, loss, data, metric, training,
   inference, or submission behavior.
@@ -52,7 +62,6 @@ small tracked experiment reports under `docs/experiments/` when needed.
 Recommended branches:
 
 ```text
-chore/repository-cleanup
 exp/baseline-reproduction
 exp/reliability-gating
 exp/audio-only-fallback
@@ -61,7 +70,9 @@ exp/av-synchronization
 ```
 
 One branch should address one coherent objective. Unverified experiments must
-not be merged into the stable branch.
+not be merged into the stable branch. A successful experiment must be fully
+recorded and reviewed before it may be considered for `main`; merging it never
+changes the immutable baseline tag.
 
 ## What may be modified
 
@@ -116,12 +127,14 @@ git diff --stat
 Then:
 
 1. confirm that the branch is not `main`;
-2. read the relevant configuration and entry point;
-3. read `README.md`, `EXPERIMENTS.md`, and the experiment template;
-4. identify the exact baseline commit and hypothesis;
-5. identify data, environment, and hardware unknowns;
-6. create or update the experiment record with `Status: Planned`;
-7. avoid touching unrelated user changes.
+2. confirm the branch starts from `baseline/track2-source-v1` or the intended
+   reviewed `main` commit;
+3. read the relevant configuration and entry point;
+4. read `README.md`, `EXPERIMENTS.md`, and the experiment template;
+5. identify the exact baseline commit and hypothesis;
+6. identify data, environment, and hardware unknowns;
+7. create or update the experiment record with `Status: Planned`;
+8. avoid touching unrelated user changes.
 
 If data, environment, hardware, license, account, or metric details are
 unclear, ask the user or write `TODO / pending confirmation`. Never invent a
