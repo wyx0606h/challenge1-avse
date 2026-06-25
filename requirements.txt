@@ -1,0 +1,47 @@
+# ============================================================================
+# Real-AVSE Challenge Baseline — Python dependencies
+# Installed by install.sh into the `real-avse` conda env (Python 3.11).
+# PyTorch is installed separately in install.sh (CUDA 12.6 wheels), so it is
+# intentionally NOT pinned here. utmosv2 ships only from git — also handled by
+# install.sh, not listed here.
+# ============================================================================
+
+# ---- Core numerics / IO ----
+numpy>=2.0,<3
+scipy>=1.13
+soundfile>=0.12
+pyyaml>=6.0
+tqdm>=4.60
+
+# ---- Training / framework ----
+pytorch-lightning>=2.2
+swanlab>=0.7              # training logger (train.py)
+tensorboardX>=2.6
+
+# ---- Audio metrics (test.py / eval_real.py) ----
+# pesq: install from GitHub source (PyPI build can fail / lag); builds the
+# C extension from master.
+https://github.com/ludlows/python-pesq/archive/master.zip
+pystoi>=0.4
+torchmetrics>=1.5        # DNSMOS backend (eval_real.py)
+librosa>=0.10
+
+# ---- Video / visual perturbation pipeline (look2hear.datas.visual_perturb) ----
+opencv-python>=4.5
+albumentations>=1.3,<2
+scikit-image>=0.22
+pillow>=10
+# albumentations -> albucore pulls in stringzilla. Pin to 4.6.1: it ships a
+# prebuilt manylinux wheel, whereas 4.6.2 is source-only and fails to compile
+# on gcc < 10 (uses AVX-512 _mm512_loadu_epi8 intrinsics added in gcc 10).
+stringzilla==4.6.1
+
+# ---- ASR-based WER/CER + speaker-sim eval (eval_real.py via Fun-ASR/model.py) ----
+funasr>=1.3
+modelscope>=1.20         # pulls Fun-ASR-Nano weights from ModelScope hub
+transformers>=4.51
+onnxruntime>=1.17        # DNSMOS onnx (CPU). GPU DNSMOS: GPU_ONNX=1 bash install.sh -> onnxruntime-gpu==1.22.0 (CUDA12/cuDNN9)
+jiwer>=3.0
+kaldiio>=2.18
+huggingface-hub>=0.23      # download_models.sh fetches WeSpeaker weights from HF; PyTorchModelHubMixin loads baseline ckpts
+safetensors>=0.4           # weights format for PyTorchModelHubMixin save/from_pretrained

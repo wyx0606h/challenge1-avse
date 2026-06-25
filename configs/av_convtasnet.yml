@@ -1,0 +1,92 @@
+# Network config
+audionet:
+  audionet_name: AV_ConvTasNet
+  audionet_config:
+    N: 256              # Number of filters in autoencoder
+    L: 40               # Length of the filters (in samples)
+    B: 256              # Number of channels in bottleneck
+    Sc: 256             # Number of channels in skip-connection
+    H: 512              # Number of channels in convolutional blocks
+    P: 3                # Kernel size in convolutional blocks
+    X: 8                # Number of convolutional blocks in each repeat
+    E: 512              # Video encoder channels (must match ResNet output: 512)
+    V: 256              # Video convolutional channels
+    K: 3                # Video kernel size
+    D: 5                # Video repeats
+    F: 256              # Fusion channels
+    R: 4                # Number of all repeats
+    skip_con: false
+    audio_index: 2
+    norm: "gln"
+    causal: false
+
+videonet:
+  videonet_name: ResNetVideoModel
+  videonet_config:
+    relu_type: "prelu"
+    pretrain: "video_pretrain/frcnn_128_512.backbone.pth.tar"
+
+# Loss config
+loss:
+  train:
+    loss_func: PITLossWrapper
+    sdr_type: pairwise_neg_snr
+    config:
+      pit_from: pw_mtx
+      threshold_byloss: false
+  val:
+    loss_func: PITLossWrapper
+    sdr_type: pairwise_neg_sisdr
+    config:
+      pit_from: pw_mtx
+      threshold_byloss: false
+
+# Training config
+training:
+  system: AudioVisualLightningModule
+  gpus: [0, 1, 2, 3]
+  parallel: ddp
+  epochs: 100
+  early_stop:
+    monitor: val_loss
+    mode: min
+    patience: 10
+    verbose: true
+
+# Optimizer config
+optimizer:
+  optim_name: adam
+  lr: 0.001
+  weight_decay: 0.0
+
+# Scheduler config
+scheduler:
+  sche_name: ReduceLROnPlateau
+  sche_config:
+    patience: 5
+    factor: 0.5
+
+# Data config
+datamodule:
+  data_name: AVSpeechDataModule
+  data_config:
+    train_dir: DataPreProcess/LRS2/tr
+    valid_dir: DataPreProcess/LRS2/cv
+    test_dir: DataPreProcess/LRS2/tt
+    n_src: 1
+    sample_rate: 16000
+    segment: 2.0
+    normalize_audio: false
+    batch_size: 4
+    num_workers: 8
+    pin_memory: true
+    persistent_workers: false
+
+# Experiment config
+exp:
+  exp_name: AVConvTasNet-Baseline
+
+# SwanLab logger config (instantiated on rank 0 only)
+logger:
+  project: Real-Wold-AVSE
+  experiment_name: AVConvTasNet-Baseline
