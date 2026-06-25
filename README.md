@@ -89,6 +89,8 @@ Repository collaboration documents:
   per-experiment record.
 - [docs/TRACK2_CHALLENGE_GUIDE_ZH.md](docs/TRACK2_CHALLENGE_GUIDE_ZH.md) —
   Track 2 reproduction guide.
+- [docs/evaluation-assets.md](docs/evaluation-assets.md) — external evaluation
+  model revisions, checksums, layout, and offline validation.
 - [UPSTREAM.md](UPSTREAM.md) — official baseline provenance and upstream sync.
 
 ### Storage boundaries
@@ -394,14 +396,40 @@ bash download_models.sh
 #    HF blocked but a mirror reachable? ->  HF_ENDPOINT=https://hf-mirror.com bash download_models.sh
 ```
 
+The team keeps evaluation assets outside Git under one structured root:
+
+```text
+<EVAL_ASSET_ROOT>/
+├── utmosv2/models/fusion_stage3/fold0_s42_best_model.pth
+├── huggingface/hub/models--facebook--wav2vec2-base/
+├── dnsmos/{DNSMOS,pDNSMOS}/
+├── funasr/
+│   ├── Fun-ASR-Nano-2512/
+│   └── fsmn-vad/
+└── wespeaker/cnceleb-resnet34-LM/model_5.pt
+```
+
+Set `EVAL_ASSET_ROOT` when using the offline wrapper. It configures the UTMOS,
+Hugging Face, DNSMOS, FunASR/VAD, and WeSpeaker paths without copying weights
+into the repository:
+
+```bash
+export EVAL_ASSET_ROOT=/external/path/to/avse-assets/evaluation
+HF_ENDPOINT=https://hf-mirror.com bash tools/download_eval_assets.sh
+python tools/check_track2_setup.py --eval-asset-root "$EVAL_ASSET_ROOT"
+```
+
+`tools/download_eval_assets.sh` needs only Bash, `aria2c`, and network access;
+it can be run before Conda/Python are installed.
+
 What `download_models.sh` fetches and where it caches:
 
 | Model | Purpose | Cache location |
 |-------|---------|----------------|
-| UTMOSv2 + wav2vec2-base | No-reference MOS | `~/.cache/utmosv2`, HF cache |
-| DNSMOS (3 onnx) | No-reference P.835 | `~/.torchmetrics/DNSMOS` |
-| Fun-ASR-Nano-2512 | Chinese ASR (CER) | `~/.cache/modelscope/hub` |
-| WeSpeaker cnceleb-resnet34-LM | Speaker embedding | `pretrained/wespeaker_cnceleb_resnet34/` |
+| UTMOSv2 + wav2vec2-base | No-reference MOS | `$EVAL_ASSET_ROOT/utmosv2`, `$EVAL_ASSET_ROOT/huggingface` |
+| DNSMOS (3 onnx) | No-reference P.835 | `$EVAL_ASSET_ROOT/dnsmos` |
+| Fun-ASR-Nano-2512 + fsmn-vad | Chinese ASR (CER) | `$EVAL_ASSET_ROOT/funasr/` |
+| WeSpeaker cnceleb-resnet34-LM | Speaker embedding | `$EVAL_ASSET_ROOT/wespeaker/` |
 | Lip-reading backbone (≈ 259 MB) | Video-branch init — **training only** | `video_pretrain/frcnn_128_512.backbone.pth.tar` |
 
 The first four are evaluation-metric weights, fetched automatically. The lip-reading backbone is only needed to train from scratch and must be **downloaded manually** from Google Drive — get it from <https://drive.google.com/file/d/13-T3nBnf21-lMKrV_XbH6Lf4vK2xU7lS/view> and place it at `video_pretrain/frcnn_128_512.backbone.pth.tar`. `download_models.sh` checks for it and prints the link if missing.
@@ -437,8 +465,12 @@ All metric models are loaded **lazily** — a run only touches the weights for t
 Speaker similarity needs a clean voiceprint per speaker. Voiceprints are built from the **clean single-speaker sources** in `remix` (`s1.wav`/`s2.wav`), grouped by speaker label and mean-pooled. Because extracting embeddings over thousands of clips is slow and identical across runs, precompute them once:
 
 ```bash
-# dev voiceprints (speakers seen in dev) — can be released with the baseline
-python build_enrollment.py --split dev  --out pretrained/enroll_dev.pt
+# dev voiceprints (generate after dev arrives; keep the result outside Git)
+python build_enrollment.py \
+  --data_root "$DATA_ROOT" --track track2 --split dev \
+  --wespeaker_ckpt \
+  "$EVAL_ASSET_ROOT/wespeaker/cnceleb-resnet34-LM/model_5.pt" \
+  --out "$ENROLL_CKPT"
 # test voiceprints — organizer-side only, NOT released
 python build_enrollment.py --split test --out pretrained/enroll_test.pt
 ```
@@ -481,8 +513,8 @@ DATA_ROOT="$DATA_ROOT" GPU=0 bash scripts/smoke_track2.sh
 
 `run_eval_real.sh` positional args: `[CKPT] [TRACK] [SCENE] [METRICS] [GPUS] [LIMIT] [MODE]`.
 Env overrides: `SPLIT` (default `dev`), `SAVE_DIR`, `ENROLL_CKPT`,
-`DATA_ROOT`, `CONF_DIR`. When `CONF_DIR` is unset, the wrapper selects the
-tracked Track 1 or Track 2 YAML from `TRACK`.
+`DATA_ROOT`, `CONF_DIR`, `EVAL_ASSET_ROOT`. When `CONF_DIR` is unset, the
+wrapper selects the tracked Track 1 or Track 2 YAML from `TRACK`.
 Unlike `eval_real.py`, whose `--mode` default is `both`, the wrapper defaults
 its seventh positional argument to `eval`. Pass `"" both` after the GPU list
 when no limit is desired and enhancement should run.

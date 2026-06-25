@@ -214,6 +214,44 @@ python tools/check_track2_setup.py --check-env
 video_pretrain/frcnn_128_512.backbone.pth.tar
 ```
 
+评测模型统一保存在 Git 仓库外：
+
+```text
+<EVAL_ASSET_ROOT>/
+├── utmosv2/                 # UTMOSv2 fold0 权重
+├── huggingface/             # facebook/wav2vec2-base 离线缓存
+├── dnsmos/                  # 3 个 DNSMOS ONNX
+├── funasr/
+│   ├── Fun-ASR-Nano-2512/
+│   └── fsmn-vad/
+└── wespeaker/cnceleb-resnet34-LM/
+```
+
+本项目当前服务器使用的逻辑根目录是
+`/home/avse/avse-assets/evaluation`。文档和提交中只记录
+`EVAL_ASSET_ROOT`，避免把个人绝对路径硬编码进代码：
+
+```bash
+export EVAL_ASSET_ROOT=/external/path/to/avse-assets/evaluation
+HF_ENDPOINT=https://hf-mirror.com bash tools/download_eval_assets.sh
+python tools/check_track2_setup.py --eval-asset-root "$EVAL_ASSET_ROOT"
+```
+
+`tools/download_eval_assets.sh` 只依赖 Bash、`aria2c` 和网络，不需要先安装
+Python/Conda；因此可以在 dev 到手前完成全部评测模型准备。
+
+`enroll_dev.pt` 不能提前下载或凭空生成；拿到 dev 后使用其中干净的
+`remix/s1.wav`、`s2.wav` 与已准备好的 WeSpeaker 权重生成，并保存到
+仓库外：
+
+```bash
+python build_enrollment.py \
+  --data_root "$DATA_ROOT" --track track2 --split dev \
+  --wespeaker_ckpt \
+  "$EVAL_ASSET_ROOT/wespeaker/cnceleb-resnet34-LM/model_5.pt" \
+  --out "$ENROLL_CKPT"
+```
+
 ### 7.2 最小推理
 
 Track 2 模型页面公开可见，但模型文件采用 gated access。当前页面要求登录账号并同意共享联系信息，接受条件后才能下载 `config.json` 和 `model.safetensors`。仅能看到 model card 不等于已经获得文件访问权；不要把 `HF_TOKEN` 写入仓库或聊天。数据和 checkpoint 访问准备后：
@@ -277,6 +315,7 @@ python eval_real.py \
 
 ```bash
 DATA_ROOT=/path/to/Real-World-AVSE \
+EVAL_ASSET_ROOT=/external/path/to/avse-assets/evaluation \
 ENROLL_CKPT=pretrained/enroll_dev.pt \
 bash run_eval_real.sh \
   "$TRACK2_MODEL_DIR" \

@@ -21,6 +21,7 @@
 #                   they are rebuilt from the split's clean remix sources
 #     DATA_ROOT   : REAL-AVSE corpus root override
 #     CONF_DIR    : model/data config override; inferred from TRACK when unset
+#     EVAL_ASSET_ROOT: external UTMOS/DNSMOS/FunASR/WeSpeaker asset root
 # Examples:
 #   # Score already-enhanced Track 2 dev wavs (default MODE=eval):
 #   bash run_eval_real.sh "" track2 both all 0,1,2,3
@@ -55,6 +56,10 @@ SAVE_DIR=${SAVE_DIR:-"enhanced_out"}    # override via env: SAVE_DIR=... bash ru
 ENROLL_CKPT=${ENROLL_CKPT:-""}          # precomputed voiceprints; empty => rebuild
 DATA_ROOT=${DATA_ROOT:-""}
 CONF_DIR=${CONF_DIR:-""}
+EVAL_ASSET_ROOT=${EVAL_ASSET_ROOT:-""}
+WESPEAKER_CKPT=${WESPEAKER_CKPT:-""}
+FUNASR_MODEL=${FUNASR_MODEL:-""}
+FUNASR_VAD_MODEL=${FUNASR_VAD_MODEL:-""}
 
 # eval_real.py always reads a YAML for sample rate / face size and uses it to
 # rebuild local Lightning checkpoints. A clean checkout does not contain the
@@ -68,6 +73,15 @@ if [ -z "$CONF_DIR" ]; then
         # config.json; this YAML still supplies sample rate and face size.
         CONF_DIR="configs/track1_av_convtasnet.yml"
     fi
+fi
+
+if [ -n "$EVAL_ASSET_ROOT" ]; then
+    export UTMOSV2_CHACHE="${UTMOSV2_CHACHE:-$EVAL_ASSET_ROOT/utmosv2}"
+    export HF_HOME="${HF_HOME:-$EVAL_ASSET_ROOT/huggingface}"
+    export DNSMOS_DIR="${DNSMOS_DIR:-$EVAL_ASSET_ROOT/dnsmos}"
+    WESPEAKER_CKPT="${WESPEAKER_CKPT:-$EVAL_ASSET_ROOT/wespeaker/cnceleb-resnet34-LM/model_5.pt}"
+    FUNASR_MODEL="${FUNASR_MODEL:-$EVAL_ASSET_ROOT/funasr/Fun-ASR-Nano-2512}"
+    FUNASR_VAD_MODEL="${FUNASR_VAD_MODEL:-$EVAL_ASSET_ROOT/funasr/fsmn-vad}"
 fi
 
 # Force offline: weights were pre-fetched by download_models.sh.
@@ -106,6 +120,9 @@ COMMON="--conf_dir $CONF_DIR --track $TRACK --scene $SCENE --metrics $METRICS --
 [ -n "$LIMIT" ]       && COMMON="$COMMON --limit $LIMIT"
 [ -n "$ENROLL_CKPT" ] && COMMON="$COMMON --enroll_ckpt $ENROLL_CKPT"
 [ -n "$DATA_ROOT" ]   && COMMON="$COMMON --data_root $DATA_ROOT"
+[ -n "$WESPEAKER_CKPT" ] && COMMON="$COMMON --wespeaker_ckpt $WESPEAKER_CKPT"
+[ -n "$FUNASR_MODEL" ] && COMMON="$COMMON --funasr_model $FUNASR_MODEL"
+[ -n "$FUNASR_VAD_MODEL" ] && COMMON="$COMMON --funasr_vad_model $FUNASR_VAD_MODEL"
 
 echo "=================================================="
 echo "Real-world AVSE evaluation"
@@ -113,6 +130,7 @@ echo "  ckpt    : ${CKPT:-<latest epoch=*.ckpt>}"
 echo "  track   : $TRACK   scene: $SCENE   metrics: $METRICS"
 echo "  split   : $SPLIT   mode: $MODE   save_dir: $SAVE_DIR"
 echo "  config  : $CONF_DIR"
+echo "  assets  : ${EVAL_ASSET_ROOT:-<default package caches>}"
 echo "  enroll  : ${ENROLL_CKPT:-<rebuild from clean sources>}"
 echo "  GPUs    : $GPUS   (shards: $NUM_SHARDS, offline mode)"
 echo "  threads : $THREADS_PER_SHARD per shard (OMP/MKL/BLAS capped)"

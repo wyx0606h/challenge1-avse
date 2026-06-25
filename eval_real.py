@@ -66,6 +66,8 @@ def parse_args():
                         "If given and exists, load it instead of rebuilding from "
                         "clean remix sources. Build one with build_enrollment.py.")
     p.add_argument("--funasr_model", default="FunAudioLLM/Fun-ASR-Nano-2512")
+    p.add_argument("--funasr_vad_model", default="fsmn-vad",
+                   help="FunASR VAD model id or local model directory")
     p.add_argument("--funasr_remote_code", default="Fun-ASR/model.py")
     p.add_argument("--mode", default="both",
                    choices=["enhance", "eval", "both"],
@@ -326,6 +328,7 @@ def main():
             metrics=metrics, device=device, sample_rate=sr,
             wespeaker_ckpt=args.wespeaker_ckpt,
             funasr_model_dir=args.funasr_model,
+            funasr_vad_model=args.funasr_vad_model,
             funasr_remote_code=args.funasr_remote_code,
             save_file=csv_path,
         )

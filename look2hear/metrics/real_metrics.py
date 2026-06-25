@@ -85,7 +85,8 @@ class RealMetricsTracker:
 
     def __init__(self, metrics=ALL_METRICS, device="cuda", sample_rate=16000,
                  wespeaker_ckpt=None, funasr_model_dir="FunAudioLLM/Fun-ASR-Nano-2512",
-                 funasr_remote_code=None, save_file=None):
+                 funasr_vad_model="fsmn-vad", funasr_remote_code=None,
+                 save_file=None):
         if metrics in (None, "none"):
             metrics = []
         self.metrics = set(m for m in metrics if m != "none")
@@ -93,6 +94,7 @@ class RealMetricsTracker:
         self.sample_rate = sample_rate
         self.wespeaker_ckpt = wespeaker_ckpt
         self.funasr_model_dir = funasr_model_dir
+        self.funasr_vad_model = funasr_vad_model
         self.funasr_remote_code = funasr_remote_code
         self.save_file = save_file
 
@@ -119,10 +121,14 @@ class RealMetricsTracker:
 
     def _get_dnsmos(self):
         if self._dnsmos_fn is None:
-            from torchmetrics.functional.audio.dnsmos import (
-                deep_noise_suppression_mean_opinion_score as fn,
+            import importlib
+            dnsmos = importlib.import_module(
+                "torchmetrics.functional.audio.dnsmos"
             )
-            self._dnsmos_fn = fn
+            external_dir = os.environ.get("DNSMOS_DIR")
+            if external_dir:
+                dnsmos.DNSMOS_DIR = external_dir
+            self._dnsmos_fn = dnsmos.deep_noise_suppression_mean_opinion_score
         return self._dnsmos_fn
 
     def _get_asr(self):
@@ -132,7 +138,7 @@ class RealMetricsTracker:
                 model=self.funasr_model_dir,
                 trust_remote_code=True,
                 remote_code=self.funasr_remote_code,
-                vad_model="fsmn-vad",
+                vad_model=self.funasr_vad_model,
                 vad_kwargs={"max_single_segment_time": 30000},
                 device=self.device,
                 hub="ms",

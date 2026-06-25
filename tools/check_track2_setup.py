@@ -78,6 +78,11 @@ def parse_args() -> argparse.Namespace:
         help="Check VoxCeleb2 manifests and the lip-reading initialization weight.",
     )
     parser.add_argument(
+        "--eval-asset-root",
+        type=Path,
+        help="Check the external UTMOS, DNSMOS, FunASR/VAD, and WeSpeaker assets.",
+    )
+    parser.add_argument(
         "--allow-partial",
         action="store_true",
         help=(
@@ -86,7 +91,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     args = parser.parse_args()
-    if not (args.data_root or args.check_env or args.check_training_assets):
+    if not (
+        args.data_root
+        or args.check_env
+        or args.check_training_assets
+        or args.eval_asset_root
+    ):
         parser.print_help()
         raise SystemExit(0)
     return args
@@ -290,6 +300,65 @@ def check_training_assets(report: Report) -> None:
         )
 
 
+def check_file(path: Path, label: str, report: Report) -> None:
+    if not path.is_file() or path.stat().st_size == 0:
+        report.fail(f"Missing or empty {label}: {path}")
+    else:
+        report.ok(f"{label}: {path} ({path.stat().st_size} bytes)")
+
+
+def check_eval_assets(path: Path, report: Report) -> None:
+    root = path.expanduser().resolve()
+    check_file(
+        root / "utmosv2" / "models" / "fusion_stage3"
+        / "fold0_s42_best_model.pth",
+        "UTMOSv2 fold0 checkpoint",
+        report,
+    )
+    wav2vec_snapshots = list(
+        (root / "huggingface" / "hub"
+         / "models--facebook--wav2vec2-base" / "snapshots").glob("*")
+    )
+    wav2vec = next(
+        (p for p in wav2vec_snapshots if (p / "pytorch_model.bin").is_file()),
+        None,
+    )
+    if wav2vec is None:
+        report.fail(f"Missing wav2vec2-base snapshot under {root / 'huggingface'}")
+    else:
+        for name in ("config.json", "preprocessor_config.json", "pytorch_model.bin"):
+            check_file(wav2vec / name, f"wav2vec2-base {name}", report)
+
+    for relative in (
+        "dnsmos/DNSMOS/model_v8.onnx",
+        "dnsmos/DNSMOS/sig_bak_ovr.onnx",
+        "dnsmos/pDNSMOS/sig_bak_ovr.onnx",
+    ):
+        check_file(root / relative, f"DNSMOS {Path(relative).name}", report)
+
+    funasr = root / "funasr" / "Fun-ASR-Nano-2512"
+    for relative in (
+        "config.yaml",
+        "configuration.json",
+        "model.pt",
+        "multilingual.tiktoken",
+        "Qwen3-0.6B/config.json",
+        "Qwen3-0.6B/tokenizer.json",
+        "Qwen3-0.6B/tokenizer_config.json",
+    ):
+        check_file(funasr / relative, f"Fun-ASR-Nano {relative}", report)
+
+    vad = root / "funasr" / "fsmn-vad"
+    for name in ("am.mvn", "config.yaml", "configuration.json", "model.pt"):
+        check_file(vad / name, f"fsmn-vad {name}", report)
+
+    check_file(
+        root / "wespeaker" / "cnceleb-resnet34-LM" / "model_5.pt",
+        "WeSpeaker model_5.pt",
+        report,
+    )
+
+
 def main() -> int:
     args = parse_args()
     report = Report()
@@ -300,6 +369,8 @@ def main() -> int:
         check_environment(report)
     if args.check_training_assets:
         check_training_assets(report)
+    if args.eval_asset_root:
+        check_eval_assets(args.eval_asset_root, report)
 
     report.print()
     return 1 if report.errors else 0

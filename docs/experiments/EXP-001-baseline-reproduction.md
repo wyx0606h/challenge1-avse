@@ -72,6 +72,10 @@ Do not record an access token in this document.
 - **Audio output:** 16 kHz mono, 32-bit float PCM, input-matched length.
 - **Metrics:** SI-SDR/PESQ/STOI on remix; UTMOS, DNSMOS, CER, and speaker
   similarity on applicable items.
+- **Evaluation asset root:** runtime `EVAL_ASSET_ROOT`, containing UTMOSv2,
+  wav2vec2-base, DNSMOS, Fun-ASR-Nano-2512, fsmn-vad, and WeSpeaker outside
+  Git. File-level validation: 19 passed, 0 failed. See
+  `docs/evaluation-assets.md`.
 - **Random seed:** TODO — record all relevant library and data-pipeline seeds.
 
 The `--no_align_face` option is not part of the baseline reproduction protocol.
@@ -114,6 +118,7 @@ Initial checkout-host observations on 2026-06-25:
 git status --short --branch
 git rev-parse HEAD
 python tools/check_track2_setup.py --check-env
+python tools/check_track2_setup.py --eval-asset-root "$EVAL_ASSET_ROOT"
 python tools/check_track2_setup.py --data-root "$DATA_ROOT"
 ```
 
@@ -140,6 +145,7 @@ cache that was primed during the smoke test.
 ```bash
 DATA_ROOT=/external/path/to/Real-World-AVSE \
 TRACK2_MODEL_DIR=/external/path/to/Real-World-AVSE-Baseline-Track2 \
+EVAL_ASSET_ROOT=/external/path/to/avse-assets/evaluation \
 SAVE_DIR=/external/path/to/outputs/EXP-001/enhanced \
 ENROLL_CKPT=/external/path/to/enroll_dev.pt \
 bash run_eval_real.sh \
