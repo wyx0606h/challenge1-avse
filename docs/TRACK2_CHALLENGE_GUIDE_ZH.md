@@ -1,6 +1,6 @@
 # Real-World AVSE Challenge Track 2 参赛与复现指南
 
-> 更新日期：2026 年 6 月 24 日
+> 更新日期：2026 年 6 月 25 日
 >
 > 官方网站：<https://real-world-avse.github.io/>
 >
@@ -216,7 +216,7 @@ video_pretrain/frcnn_128_512.backbone.pth.tar
 
 ### 7.2 最小推理
 
-Track 2 checkpoint 是受限 Hugging Face 仓库，需先获批并完成登录。数据和 checkpoint 准备后：
+Track 2 模型页面公开可见，但模型文件采用 gated access。当前页面要求登录账号并同意共享联系信息，接受条件后才能下载 `config.json` 和 `model.safetensors`。仅能看到 model card 不等于已经获得文件访问权；不要把 `HF_TOKEN` 写入仓库或聊天。数据和 checkpoint 访问准备后：
 
 ```bash
 DATA_ROOT=/path/to/Real-World-AVSE \
@@ -226,17 +226,74 @@ bash scripts/smoke_track2.sh
 
 脚本对 `mix` 和 `remix` 各取一个片段，关闭所有指标，仅验证数据读取、MP4/关键点处理、checkpoint 加载、模型前向和输出目录格式。
 
+也可以直接使用 Hugging Face repo id。当前 `eval_real.py` 仍会读取
+`--conf_dir` 以获得采样率和人脸尺寸，因此在本仓库中应显式传入 Track 2
+配置：
+
+```bash
+python eval_real.py \
+  --conf_dir configs/track2_av_convtasnet.yml \
+  --ckpt JusperLee/Real-World-AVSE-Baseline-Track2 \
+  --data_root "$DATA_ROOT" \
+  --track track2 --scene both --split dev \
+  --metrics none --mode enhance --save_dir enhanced_out/smoke-hf \
+  --gpus 0 --limit 1
+```
+
+Hugging Face checkpoint 已包含训练后的 ResNet 视频编码器权重。只有从头
+训练新模型时才需要
+`video_pretrain/frcnn_128_512.backbone.pth.tar`；使用发布 checkpoint
+进行推理或继续加载权重时不需要它。
+
+团队已下载并校验 Track 2 checkpoint，来源 revision 为：
+
+```text
+3777a458d13e8dc98877f69e542d6a8a7441835b
+```
+
+| 文件 | 大小 | SHA256 |
+|---|---:|---|
+| `config.json` | 279 bytes | `de1819318f7c3fb79914314475ab4b223973af9104d42600e533cdb557bcf5f8` |
+| `model.safetensors` | 100,176,860 bytes | `600d1632346e9b85e64f2842000f41d2cdb9f6b1afca8011c5decdc5ce9e78c1` |
+
+这两个文件应放在 Git 仓库外的同一个目录中，并把目录作为 `--ckpt`
+传入：
+
+```bash
+export TRACK2_MODEL_DIR=/external/path/to/Real-World-AVSE-Baseline-Track2
+
+python eval_real.py \
+  --conf_dir configs/track2_av_convtasnet.yml \
+  --ckpt "$TRACK2_MODEL_DIR" \
+  --data_root "$DATA_ROOT" \
+  --track track2 --scene both --split dev \
+  --metrics none --mode enhance --save_dir enhanced_out/smoke-local \
+  --gpus 0 --limit 1
+```
+
+不要把 `model.safetensors` 加入 Git，也不要使用 `git add -f` 绕过保护。
+
 ### 7.3 完整 dev 评测
 
 ```bash
 DATA_ROOT=/path/to/Real-World-AVSE \
 ENROLL_CKPT=pretrained/enroll_dev.pt \
 bash run_eval_real.sh \
-  JusperLee/Real-World-AVSE-Baseline-Track2 \
-  track2 both all 0,1,2,3
+  "$TRACK2_MODEL_DIR" \
+  track2 both all 0,1,2,3 "" both
 ```
 
 完整 Track 2 dev 应覆盖 5,250 个目标评测项。建议把增强和评分拆开执行，便于修改指标而不重复昂贵推理。
+
+注意：`eval_real.py` 的 `--mode` 默认值是 `both`，但
+`run_eval_real.sh` 的第七个位置参数默认值是 `eval`。上面的 `"" both`
+中，空字符串表示不设置 `LIMIT`，`both` 表示确实执行增强和评分。如果
+省略它，wrapper 只会读取 `SAVE_DIR` 中已经存在的增强 wav 进行评分。
+
+wrapper 还会强制 Hugging Face、Transformers 和 ModelScope 离线。
+`download_models.sh` 会缓存评测指标模型，但当前不会下载 gated 的 Track 2
+baseline checkpoint。正式运行优先使用上面已经校验的本地模型目录；也可
+在联网环境预热并复制经过校验的 Hugging Face cache。
 
 ## 8. 训练数据
 
@@ -290,7 +347,14 @@ submission/
 - dev 和 test 说话人不重叠，dev enrollment 不能直接用于 test。
 - Track 2 是 Track 1 退化版本加远场数据，不是一个小型独立语料。
 - 指标模型较多，首次下载和缓存需要联网；计算集群可以随后离线运行。
-- 官方 Hugging Face checkpoint 受限，仓库 ID 正确不代表当前账号已有权限。
+- 官方 Hugging Face checkpoint 是 gated 模型：能看到页面和 model card
+  不代表能下载文件；需登录、接受联系信息共享条件并验证实际下载。
+- Hugging Face model card 当前给出的 `eval_real.py` 示例没有显式传
+  `--conf_dir`；在本仓库当前版本中应补上
+  `configs/track2_av_convtasnet.yml`。
+- `run_eval_real.sh` 默认 `MODE=eval`，省略第七个位置参数不会运行模型。
+- `run_eval_real.sh` 强制离线，而 `download_models.sh` 当前不下载 AVSE
+  baseline checkpoint；首次加载必须先在联网环境完成并复用同一缓存。
 - 全量指标可能比模型推理更慢，应使用多 GPU 分片和合理 CPU 线程数。
 - `.gitignore` 已排除数据、checkpoint、增强音频和实验目录，不要用 `git add -f` 绕过保护。
 

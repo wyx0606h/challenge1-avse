@@ -21,7 +21,7 @@ artifacts have been checked, and complete metrics have been recorded.
 
 | ID | Name | Status | Branch | Commit | Parent | Result summary | Detailed record |
 |---|---|---|---|---|---|---|---|
-| EXP-001 | Official Track 2 baseline reproduction | Planned | `exp/baseline-reproduction` | TODO | `baseline/track2-source-v1` | No team result yet | TODO |
+| EXP-001 | Official Track 2 baseline reproduction | Planned | `exp/baseline-reproduction` | TODO | `baseline/track2-source-v1` | No team result yet | [`docs/experiments/EXP-001-baseline-reproduction.md`](docs/experiments/EXP-001-baseline-reproduction.md) |
 
 `baseline/track2-source-v1` freezes the source code and collaboration workflow.
 It is not an experiment result and does not claim reproduction of the official

@@ -113,14 +113,18 @@ def find_latest_ckpt(conf_dir):
     return max(cands, key=os.path.getmtime)
 
 
-def is_hf_repo_id(s):
-    """True if ``s`` looks like a HuggingFace ``org/name`` repo id (not a local
-    path and not a checkpoint filename), e.g.
-    ``"JusperLee/Real-World-AVSE-Baseline-Track1"``."""
+def is_hf_model_source(s):
+    """True for a Hugging Face repo id or local Hub-format model directory."""
     import re
+    if not isinstance(s, str):
+        return False
+    if os.path.isdir(s):
+        return (
+            os.path.isfile(os.path.join(s, "config.json"))
+            and os.path.isfile(os.path.join(s, "model.safetensors"))
+        )
     return (
-        isinstance(s, str)
-        and not os.path.exists(s)
+        not os.path.exists(s)
         and re.fullmatch(r"[\w.-]+/[\w.-]+", s) is not None
         and not s.endswith((".ckpt", ".pth", ".pt", ".tar"))
     )
@@ -140,9 +144,10 @@ def load_model_hf_or_serialize(ckpt, conf, device):
     config; the local serialize path forces it to ``None``).
     """
     model_cls = getattr(look2hear.models, conf["audionet"]["audionet_name"])
-    if is_hf_repo_id(ckpt):
+    if is_hf_model_source(ckpt):
         model = model_cls.from_pretrained(ckpt)        # mixin: config + safetensors
-        print(f"Loaded HF:{ckpt} via from_pretrained (config.json + safetensors)")
+        source = f"HF:{ckpt}" if not os.path.isdir(ckpt) else ckpt
+        print(f"Loaded {source} via from_pretrained (config.json + safetensors)")
     else:
         model = model_cls.from_pretrain(ckpt, video_pretrain=None)   # local payload
         print(f"Loaded {os.path.basename(ckpt)} via from_pretrain (serialize format)")
@@ -291,11 +296,13 @@ def main():
     model = None
     if need_model:
         # Three checkpoint sources, auto-detected from --ckpt:
-        #   * HF repo id ("org/name")        -> from_pretrained (config + safetensors)
+        #   * HF repo id or local Hub dir    -> from_pretrained (config + safetensors)
         #   * local serialize best_model.pth -> from_pretrain (self-describing)
         #   * local Lightning *.ckpt / none  -> rebuild from conf.yml + strip prefix
         ckpt = args.ckpt or find_latest_ckpt(args.conf_dir)
-        if is_hf_repo_id(ckpt) or (ckpt.endswith(".pth") and os.path.isfile(ckpt)):
+        if is_hf_model_source(ckpt) or (
+            ckpt.endswith(".pth") and os.path.isfile(ckpt)
+        ):
             model = load_model_hf_or_serialize(ckpt, conf, device)
         else:
             model = load_model(conf, ckpt, device)

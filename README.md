@@ -25,7 +25,7 @@ Current team status:
 | Server environment | TODO — not yet audited on the target server |
 | Official challenge `dev` access | TODO — team registration is pending |
 | Training data source and license | TODO — not yet confirmed |
-| Hugging Face checkpoint access | TODO — account authorization must be confirmed |
+| Hugging Face checkpoint access | Completed — gated files from revision `3777a458d13e8dc98877f69e542d6a8a7441835b` were downloaded and checksummed outside Git |
 | Baseline smoke test on real challenge data | TODO — blocked by data and environment |
 | Full baseline reproduction | TODO — no team reproduction result is claimed yet |
 | Available compute | Expected: 3× RTX 4090 + 1× RTX 5090; driver, VRAM, CPU, RAM, disk, and mixed-GPU compatibility are TODO |
@@ -144,7 +144,9 @@ data, and storage layout are available.
 4. Install the isolated environment using the instructions below.
 5. Confirm challenge registration and data access; do not assume `dev` assets.
 6. Confirm the training data source, license, and speaker-disjoint splits.
-7. Authenticate to Hugging Face if the selected checkpoint is gated.
+7. Log in to Hugging Face, accept the Track 2 model repository's
+   contact-sharing condition, and verify that `config.json` and
+   `model.safetensors` can be downloaded.
 8. Run `tools/check_track2_setup.py`.
 9. Run the one-item-per-scene smoke test.
 10. Run the complete baseline only after the smoke test succeeds.
@@ -256,7 +258,7 @@ python train.py --conf_dir configs/track1_av_convtasnet.yml
 python train.py --conf_dir configs/track2_av_convtasnet.yml
 ```
 
-**Skip training — use the released baseline checkpoints.** Both baseline models are published on HuggingFace with the standard [`PyTorchModelHubMixin`](https://huggingface.co/docs/huggingface_hub/guides/integrations) layout (`config.json` + `model.safetensors`), so they load from a **repo id alone** — weights download and cache on first use, no manual file placement:
+**Skip training — use the released baseline checkpoints.** Both baseline models are published on HuggingFace with the standard [`PyTorchModelHubMixin`](https://huggingface.co/docs/huggingface_hub/guides/integrations) layout (`config.json` + `model.safetensors`). The model page is public, but downloading the gated files requires a logged-in account to accept the contact-sharing condition. Once access is accepted, the model loads from a **repo id alone** and the files download into the Hugging Face cache on first use:
 
 | Track | HuggingFace repo |
 |-------|------------------|
@@ -264,22 +266,53 @@ python train.py --conf_dir configs/track2_av_convtasnet.yml
 | Track 2 | [`JusperLee/Real-World-AVSE-Baseline-Track2`](https://huggingface.co/JusperLee/Real-World-AVSE-Baseline-Track2) |
 
 ```bash
-# One-time: the repos may be gated — log in and confirm that access is granted
-huggingface-cli login            # or: export HF_TOKEN=...
+# One-time: accept the model-page condition in a browser, then authenticate
+huggingface-cli login            # or provide HF_TOKEN through a secret mechanism
 
-# Reproduce the baseline — weights auto-download from HuggingFace on first run
-python eval_real.py --ckpt JusperLee/Real-World-AVSE-Baseline-Track1 \
-  --track track1 --split dev --metrics all --mode both --save_dir enhanced_out
+# Track 2 baseline — weights auto-download on first use
+python eval_real.py \
+  --conf_dir configs/track2_av_convtasnet.yml \
+  --ckpt JusperLee/Real-World-AVSE-Baseline-Track2 \
+  --data_root "$DATA_ROOT" \
+  --track track2 --scene both --split dev \
+  --metrics all --mode both --save_dir enhanced_out
 ```
 
 Or load it directly in Python — the trained video encoder is bundled in the weights, so no lip-reading backbone file is needed:
 
 ```python
 from look2hear.models import AV_ConvTasNet
-model = AV_ConvTasNet.from_pretrained("JusperLee/Real-World-AVSE-Baseline-Track1").eval()
+model = AV_ConvTasNet.from_pretrained(
+    "JusperLee/Real-World-AVSE-Baseline-Track2"
+).eval()
 ```
 
-`--ckpt` also accepts a local Lightning `*.ckpt` or a local `best_model.pth`, so existing workflows are unchanged.
+For offline use, keep `config.json` and `model.safetensors` together in one
+external directory and pass the directory itself as `--ckpt`:
+
+```bash
+export TRACK2_MODEL_DIR=/external/path/to/Real-World-AVSE-Baseline-Track2
+
+python eval_real.py \
+  --conf_dir configs/track2_av_convtasnet.yml \
+  --ckpt "$TRACK2_MODEL_DIR" \
+  --data_root "$DATA_ROOT" \
+  --track track2 --scene both --split dev \
+  --metrics none --mode enhance --save_dir enhanced_out/smoke-local \
+  --gpus 0 --limit 1
+```
+
+The team snapshot was downloaded from Hugging Face revision
+`3777a458d13e8dc98877f69e542d6a8a7441835b`:
+
+| File | Size | SHA256 |
+|---|---:|---|
+| `config.json` | 279 bytes | `de1819318f7c3fb79914314475ab4b223973af9104d42600e533cdb557bcf5f8` |
+| `model.safetensors` | 100,176,860 bytes | `600d1632346e9b85e64f2842000f41d2cdb9f6b1afca8011c5decdc5ce9e78c1` |
+
+Keep these files outside Git and provide the location through the shell or job
+configuration. `--ckpt` also accepts a local Lightning `*.ckpt` or serialized
+`best_model.pth`.
 
 ---
 
@@ -331,9 +364,18 @@ So **participants develop and self-score on `dev`** with the full metric suite; 
 
 > **Note:** `dev` and `test` use **disjoint speaker sets**, so a voiceprint built on one split does not transfer to the other — each split is self-contained for enrollment.
 
-Each `s{1,2}.pkl` holds the **precomputed face landmarks** for that speaker's `s{1,2}.mp4`: a Python list with one entry per video frame, each entry either a `68×2` float32 array of facial landmark coordinates or `None` when no face was detected in that frame. They are shipped for both `dev` and `test` so participants can drive a landmark-based visual front end without re-running face detection. They are derived from the released mp4 and carry no ground-truth audio information. The baseline reader does not consume them — it decodes the mp4 directly (grayscale → resize 96 → crop 88) — so they are optional for the baseline and provided purely for convenience.
+Each `s{1,2}.pkl` holds the **precomputed face landmarks** for that speaker's `s{1,2}.mp4`: a Python list with one entry per video frame, each entry either a `68×2` float32 array of facial landmark coordinates or `None` when no face was detected in that frame. They are derived from the released mp4 and carry no ground-truth audio information.
 
-The visual front end is shared with training: face mp4 → grayscale → resize to 96 → center-crop 88 → normalize (mean 0.421, std 0.165). ([look2hear/datas/real_test_dataset.py](look2hear/datas/real_test_dataset.py), [look2hear/datas/transform.py](look2hear/datas/transform.py))
+In this repository's current evaluation path, landmark alignment is enabled by
+default. The reader computes one stable square crop per clip from the median
+valid 68-point landmark extent, re-crops every frame to approximate the
+VoxCeleb2 training-face composition, resizes to 96×96, center-crops to 88×88,
+and normalizes with mean 0.421 and standard deviation 0.165. If the landmark
+file is missing or contains no valid detections, it warns once and falls back
+to whole-frame grayscale resize. Pass `--no_align_face` only for an explicit
+A/B comparison; this changes the evaluation protocol and must be recorded.
+([look2hear/datas/real_test_dataset.py](look2hear/datas/real_test_dataset.py),
+[look2hear/datas/transform.py](look2hear/datas/transform.py))
 
 ---
 
@@ -424,25 +466,41 @@ A comma-separated GPU list runs one shard per GPU (`items[shard_id::num_shards]`
 ### 6.5 Quick start
 
 ```bash
-# Participants: score the dev set on 4 GPUs with the released dev voiceprints
+# Enhance and score Track 2 dev using the verified local snapshot
 ENROLL_CKPT=pretrained/enroll_dev.pt \
-  bash run_eval_real.sh "" both both all 0,1,2,3      # SPLIT defaults to dev
+  bash run_eval_real.sh \
+  "$TRACK2_MODEL_DIR" track2 both all 0,1,2,3 "" both
 
-# Organizers: score the held-out test set
-SPLIT=test bash run_eval_real.sh "" both both all 0,1,2,3
+# Score already-enhanced dev wavs without loading the separation model
+ENROLL_CKPT=pretrained/enroll_dev.pt \
+  bash run_eval_real.sh "" track2 both all 0,1,2,3 "" eval
 
-# Pipeline smoke test (no metric weights needed): 5 clips/scene, model only
-bash run_eval_real.sh "" both both none 0 5
+# Pipeline smoke test (no metric weights needed): use the dedicated script
+DATA_ROOT="$DATA_ROOT" GPU=0 bash scripts/smoke_track2.sh
 ```
 
 `run_eval_real.sh` positional args: `[CKPT] [TRACK] [SCENE] [METRICS] [GPUS] [LIMIT] [MODE]`.
-Env overrides: `SPLIT` (default `dev`), `SAVE_DIR`, `ENROLL_CKPT`, `DATA_ROOT`.
+Env overrides: `SPLIT` (default `dev`), `SAVE_DIR`, `ENROLL_CKPT`,
+`DATA_ROOT`, `CONF_DIR`. When `CONF_DIR` is unset, the wrapper selects the
+tracked Track 1 or Track 2 YAML from `TRACK`.
+Unlike `eval_real.py`, whose `--mode` default is `both`, the wrapper defaults
+its seventh positional argument to `eval`. Pass `"" both` after the GPU list
+when no limit is desired and enhancement should run.
+
+The wrapper also forces Hugging Face, Transformers, and ModelScope offline
+mode. `download_models.sh` primes the evaluation-metric models but does not
+currently download the gated AVSE baseline checkpoint. Prefer the verified
+local snapshot directory, or prime/copy a verified Hugging Face cache before
+passing a repo id.
 
 Calling `eval_real.py` directly exposes the full flag set:
 
 ```bash
 python eval_real.py \
-  --track both --scene both --split dev --metrics all \
+  --conf_dir configs/track2_av_convtasnet.yml \
+  --ckpt JusperLee/Real-World-AVSE-Baseline-Track2 \
+  --data_root "$DATA_ROOT" \
+  --track track2 --scene both --split dev --metrics all \
   --mode both --save_dir enhanced_out \
   --enroll_ckpt pretrained/enroll_dev.pt --gpus 0
 ```
@@ -457,7 +515,7 @@ python eval_real.py \
 | `--save_dir` | enhanced-audio dir (required for `enhance`/`eval`) |
 | `--enroll_ckpt` | precomputed voiceprints `.pt` |
 | `--num_shards` / `--shard_id` / `--merge_shards` | multi-GPU sharding |
-| `--ckpt` / `--conf_dir` | checkpoint + model config (defaults to the latest ckpt next to `conf.yml`) |
+| `--ckpt` / `--conf_dir` | HF repo id, local `config.json` + `model.safetensors` directory, Lightning checkpoint, or serialized `.pth`; the YAML supplies sample rate/face size and Lightning rebuild information |
 | `--limit` | cap clips per (track, scene) for smoke tests |
 
 ### 6.6 Outputs
@@ -484,11 +542,11 @@ For example, `track2/test/mix/000356/s1.wav` is your estimate of speaker **s1** 
 - **16 kHz, mono, WAV.** Float (`PCM_F`) or 16-bit PCM are both accepted; the baseline writes 32-bit float so re-scoring reproduces the in-memory numbers exactly.
 - **Keep the `clip_id` directory names and the `s1`/`s2` tags unchanged** — scoring matches files to references and speaker labels by this path. Length should match the input mixture.
 
-The simplest way to generate a correctly-structured submission is to run the baseline (or your model in the same harness) with `--mode enhance --save_dir <submission>`; the resulting `enhanced_out/`-style tree *is* the submission.
+The simplest way to generate a correctly-structured submission is to run the baseline (or your model in the same harness) with `--mode enhance --save_dir <submission>`; the resulting `enhanced_out/`-style tree *is* the submission. The current `eval_real.py` enumerates clips from `mix_manifest.json` and `remix_manifest.json` for every split. If the participant test handout does not include those manifests, a separate organizer-provided manifest or a reviewed directory-enumeration change is required before this harness can generate the full test submission.
 
 ### 6.8 Baseline results (dev)
 
-Reference scores from the released checkpoints on the **dev** split (`--split dev --metrics all`). SI-SDR / PESQ / STOI are reference-based, so they are reported on `remix` only (the `mix` scene has no clean ground truth); each track's `overall` row therefore carries the same reference-based values as its `remix` row. Speaker similarity (`spk_sim`) uses the dev voiceprints; CER is from Fun-ASR-Nano.
+Reference scores from the released checkpoints on the **dev** split (`--split dev --metrics all`). SI-SDR / PESQ / STOI are reference-based, so they are reported on `remix` only (the `mix` scene has no clean ground truth); each track's `overall` row therefore carries the same reference-based values as its `remix` row. Speaker similarity (`spk_sim`) uses the dev voiceprints; CER is from Fun-ASR-Nano. The current repository defaults to landmark alignment; the exact checkpoint revision, metric-cache revisions, command, and alignment setting used to produce the table still need to be attached before the team treats it as a reproducible reference.
 
 **Track 1**
 

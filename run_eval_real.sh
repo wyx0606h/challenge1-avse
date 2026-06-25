@@ -20,12 +20,16 @@
 #     ENROLL_CKPT : path to precomputed voiceprints (.pt) for spk-sim; if unset,
 #                   they are rebuilt from the split's clean remix sources
 #     DATA_ROOT   : REAL-AVSE corpus root override
+#     CONF_DIR    : model/data config override; inferred from TRACK when unset
 # Examples:
-#   bash run_eval_real.sh                                  # dev, latest ckpt, 1 GPU, all
-#   bash run_eval_real.sh "" both both all 0,1,2,3        # dev, 4-GPU sharded eval
-#   SPLIT=test bash run_eval_real.sh "" both both all 0,1 # organizer test eval
-#   ENROLL_CKPT=pretrained/enroll_dev.pt bash run_eval_real.sh "" both both spk 0
-#   bash run_eval_real.sh "" both both none 0 5           # 5-clip smoke (pipeline only)
+#   # Score already-enhanced Track 2 dev wavs (default MODE=eval):
+#   bash run_eval_real.sh "" track2 both all 0,1,2,3
+#   # Enhance + score with an already-cached gated HF checkpoint:
+#   bash run_eval_real.sh JusperLee/Real-World-AVSE-Baseline-Track2 \
+#     track2 both all 0,1,2,3 "" both
+#   # Model-only limited run (checkpoint must already be cached):
+#   bash run_eval_real.sh JusperLee/Real-World-AVSE-Baseline-Track2 \
+#     track2 both none 0 5 enhance
 
 # Activate the same conda env that install.sh created (override with ENV_NAME=...).
 ENV_NAME="${ENV_NAME:-real-avse}"
@@ -50,6 +54,21 @@ SPLIT=${SPLIT:-"dev"}                   # default to dev (participant-facing spl
 SAVE_DIR=${SAVE_DIR:-"enhanced_out"}    # override via env: SAVE_DIR=... bash run_eval_real.sh
 ENROLL_CKPT=${ENROLL_CKPT:-""}          # precomputed voiceprints; empty => rebuild
 DATA_ROOT=${DATA_ROOT:-""}
+CONF_DIR=${CONF_DIR:-""}
+
+# eval_real.py always reads a YAML for sample rate / face size and uses it to
+# rebuild local Lightning checkpoints. A clean checkout does not contain the
+# script's historical Experiments/... default, so select a tracked config here.
+if [ -z "$CONF_DIR" ]; then
+    if [ "$TRACK" = "track2" ]; then
+        CONF_DIR="configs/track2_av_convtasnet.yml"
+    else
+        # Track 1 and "both" share the same AV-ConvTasNet architecture. Runs
+        # using a released HF checkpoint rebuild the architecture from its own
+        # config.json; this YAML still supplies sample rate and face size.
+        CONF_DIR="configs/track1_av_convtasnet.yml"
+    fi
+fi
 
 # Force offline: weights were pre-fetched by download_models.sh.
 export HF_HUB_OFFLINE=1
@@ -82,7 +101,7 @@ export VECLIB_MAXIMUM_THREADS="$THREADS_PER_SHARD"
 export TOKENIZERS_PARALLELISM=false   # HF tokenizers fork-safety + no thread storm
 
 # Common args shared by every shard.
-COMMON="--track $TRACK --scene $SCENE --metrics $METRICS --mode $MODE --split $SPLIT --save_dir $SAVE_DIR"
+COMMON="--conf_dir $CONF_DIR --track $TRACK --scene $SCENE --metrics $METRICS --mode $MODE --split $SPLIT --save_dir $SAVE_DIR"
 [ -n "$CKPT" ]        && COMMON="$COMMON --ckpt $CKPT"
 [ -n "$LIMIT" ]       && COMMON="$COMMON --limit $LIMIT"
 [ -n "$ENROLL_CKPT" ] && COMMON="$COMMON --enroll_ckpt $ENROLL_CKPT"
@@ -93,6 +112,7 @@ echo "Real-world AVSE evaluation"
 echo "  ckpt    : ${CKPT:-<latest epoch=*.ckpt>}"
 echo "  track   : $TRACK   scene: $SCENE   metrics: $METRICS"
 echo "  split   : $SPLIT   mode: $MODE   save_dir: $SAVE_DIR"
+echo "  config  : $CONF_DIR"
 echo "  enroll  : ${ENROLL_CKPT:-<rebuild from clean sources>}"
 echo "  GPUs    : $GPUS   (shards: $NUM_SHARDS, offline mode)"
 echo "  threads : $THREADS_PER_SHARD per shard (OMP/MKL/BLAS capped)"
