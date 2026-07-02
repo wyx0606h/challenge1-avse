@@ -31,6 +31,8 @@ workflow only; it does not claim that official metrics have been reproduced.
 - `tools/`: repository, environment, and data validation tools.
 - `scripts/`: small reproducibility and smoke-test scripts.
 - `docs/`: team guides and experiment templates.
+- `docs/experiment-conventions.md`: current local path, environment, branch,
+  artifact-root, and small-overfit conventions.
 - `train.py`: training entry point.
 - `test.py`: training-corpus test-split evaluation.
 - `eval_real.py`: challenge inference, evaluation, and submission generation.
@@ -40,6 +42,11 @@ workflow only; it does not claim that official metrics have been reproduced.
 Do not create a lowercase root `experiments/` directory. It is easily confused
 with the generated `Experiments/` directory on case-insensitive systems. Store
 small tracked experiment reports under `docs/experiments/` when needed.
+
+Current local experiment conventions are tracked in
+`docs/experiment-conventions.md`. Update that file when the shared path,
+environment, branch, or artifact-root policy changes instead of repeating the
+same details across experiment reports.
 
 ## Baseline protection
 
