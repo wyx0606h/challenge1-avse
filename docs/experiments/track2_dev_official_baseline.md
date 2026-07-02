@@ -157,6 +157,64 @@ attached before treating that table as a strict reproducible reference.
   Python 3.8 only exposed installable Transformers versions up to `4.46.3` in
   this environment, so `qwen3` is not recognized.
 
+## Follow-up Environment For UTMOS/CER
+
+The machine currently exposes only `/usr/bin/python3.8` on PATH and has no
+`conda`, `mamba`, `micromamba`, `uv`, or `pyenv`. The recommended follow-up is
+to create an isolated Python 3.11 evaluation environment outside the repository:
+
+```bash
+# Tool install location, outside Git.
+cd /home/avse
+curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest \
+  -o /home/avse/micromamba-linux-64.tar.bz2
+mkdir -p /home/avse/micromamba-bin
+tar -xjf /home/avse/micromamba-linux-64.tar.bz2 -C /home/avse/micromamba-bin bin/micromamba
+
+# New evaluation environment.
+/home/avse/micromamba-bin/bin/micromamba create -y \
+  -p /home/avse/avse_eval_py311 \
+  -c pytorch -c nvidia -c conda-forge \
+  python=3.11 pytorch torchaudio pytorch-cuda=12.1
+
+/home/avse/avse_eval_py311/bin/python -m pip install \
+  -r /home/avse/workspace-goodparts/requirements.txt \
+  transformers==4.51.0 funasr modelscope utmosv2
+```
+
+After the environment is ready, rerun eval-only metrics over the already fixed
+enhancement WAVs:
+
+```bash
+cd /home/avse/workspace-goodparts
+
+# UTMOS, can be sharded if slow.
+/home/avse/avse_eval_py311/bin/python eval_real.py \
+  --conf_dir configs/track2_av_convtasnet.yml \
+  --data_root /home/avse/experiments/track2_dev_official_baseline/data_root \
+  --track track2 --scene both --split dev \
+  --metrics utmos --mode eval \
+  --save_dir /home/avse/experiments/track2_dev_official_baseline/full/enhanced \
+  --out_csv /home/avse/experiments/track2_dev_official_baseline/metrics/utmos.csv
+
+# CER with local Fun-ASR resources.
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 MODELSCOPE_OFFLINE=1 \
+  /home/avse/avse_eval_py311/bin/python eval_real.py \
+  --conf_dir configs/track2_av_convtasnet.yml \
+  --data_root /home/avse/experiments/track2_dev_official_baseline/data_root \
+  --track track2 --scene both --split dev \
+  --metrics asr --mode eval \
+  --save_dir /home/avse/experiments/track2_dev_official_baseline/full/enhanced \
+  --out_csv /home/avse/experiments/track2_dev_official_baseline/metrics/asr.csv \
+  --funasr_model /home/avse/avse-assets/evaluation/funasr/Fun-ASR-Nano-2512 \
+  --funasr_vad_model /home/avse/avse-assets/evaluation/funasr/fsmn-vad \
+  --funasr_remote_code Fun-ASR/model.py
+```
+
+On 2026-07-02, Codex attempted to download micromamba for this follow-up
+environment, but the network action was blocked by the current Codex usage
+limit. No partial environment was created.
+
 ## Code Notes
 
 - `look2hear/datas/real_test_dataset.py` was adjusted to read NumPy-2-created
