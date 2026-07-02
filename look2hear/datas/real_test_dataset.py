@@ -64,6 +64,20 @@ _TARGET_FACE_FRAC = 0.78
 _TARGET_CX, _TARGET_CY = 0.50, 0.61
 
 
+class _NumpyCompatUnpickler(pickle.Unpickler):
+    """Read NumPy 2 pickles in the Python 3.8 / NumPy 1.x environment."""
+
+    def find_class(self, module, name):
+        if module == "numpy._core" or module.startswith("numpy._core."):
+            module = module.replace("numpy._core", "numpy.core", 1)
+        return super().find_class(module, name)
+
+
+def _load_landmarks(path):
+    with open(path, "rb") as file_obj:
+        return _NumpyCompatUnpickler(file_obj).load()
+
+
 def _read_face_gray(path, size):
     """Decode a whole-face ``.mp4`` to a ``(T, size, size)`` grayscale array.
 
@@ -138,7 +152,7 @@ def _read_face_gray_aligned(mp4_path, pkl_path, size):
     Returns ``None`` if the clip has no valid landmark detections, so the caller
     can fall back to the legacy whole-face resize.
     """
-    landmarks = pickle.load(open(pkl_path, "rb"))
+    landmarks = _load_landmarks(pkl_path)
     box = _fixed_face_box(landmarks)
     if box is None:
         return None

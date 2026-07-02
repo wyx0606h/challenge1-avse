@@ -7,6 +7,7 @@ paths.
 - Model repository: `/home/avse/workspace-goodparts`
 - Data pipeline: `/home/avse/data_pipeline`
 - Current CPU smoke environment: `/home/avse/data_pipeline/.venv`
+- Current GPU evaluation environment: `/home/avse/avse_gpu_venv`
 - Current smoke data: `/home/avse/data_pipeline/outputs/chinese_lips_baseline_smoke`
 - Artifact root: `/home/avse/experiments/<experiment_name>`
 - Stable branch: `main`
