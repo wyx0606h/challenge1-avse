@@ -194,7 +194,7 @@ baseline 的 Track 2 数据管线覆盖：
 `mix` 没有干净参考，因此不能本地计算 SI-SDR、PESQ、STOI。研究时不能只优化 SI-SDR：过强抑制可能提高部分信号指标，却损害 CER、自然度或说话人身份。
 
 官方 README 公布的 Track 2 dev baseline 整体结果包括 remix SI-SDR 约
-`-2.70 dB`、整体 CER 约 `0.915`。这些数值在当前阶段只作为量级参照，
+`-2.8507 dB`、整体 CER 约 `0.8707`。这些数值在当前阶段只作为量级参照，
 不要求 bit-for-bit 严格复现。当前本地完整复现结果记录在
 `docs/experiments/track2_dev_official_baseline.md`。
 

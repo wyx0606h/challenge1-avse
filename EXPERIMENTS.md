@@ -21,7 +21,7 @@ artifacts have been checked, and complete metrics have been recorded.
 
 | ID | Name | Status | Branch | Commit | Parent | Result summary | Detailed record |
 |---|---|---|---|---|---|---|---|
-| EXP-001 | Official Track 2 baseline reproduction | Completed | `exp/baseline-reproduction` | `189cdc7` | `baseline/track2-source-v1` | Track 2 dev inference covered 5,250 target-speaker WAVs; overall SI-SDR -2.848, PESQ 1.256, STOI 0.470, UTMOS 1.176, DNSMOS ovr 1.396, CER 0.881, spk_sim 0.370 | [`docs/experiments/track2_dev_official_baseline.md`](docs/experiments/track2_dev_official_baseline.md) |
+| EXP-001 | Official Track 2 baseline reproduction | Completed | `exp/baseline-reproduction` | `189cdc7` | `baseline/track2-source-v1` | Track 2 dev inference covered 5,250 target-speaker WAVs; local overall SI-SDR -2.848, PESQ 1.256, STOI 0.470, UTMOS 1.176, DNSMOS ovr 1.396, CER 0.881, spk_sim 0.370. Upstream README reference values were refreshed at `upstream/main` `00e76b7`; see the report for the updated comparison. | [`docs/experiments/track2_dev_official_baseline.md`](docs/experiments/track2_dev_official_baseline.md) |
 
 `baseline/track2-source-v1` freezes the source code and collaboration workflow.
 It is not an experiment result and does not claim reproduction of the official
