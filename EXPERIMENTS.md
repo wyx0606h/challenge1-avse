@@ -21,7 +21,7 @@ artifacts have been checked, and complete metrics have been recorded.
 
 | ID | Name | Status | Branch | Commit | Parent | Result summary | Detailed record |
 |---|---|---|---|---|---|---|---|
-| EXP-001 | Official Track 2 baseline reproduction | Planned | `exp/baseline-reproduction` | TODO | `baseline/track2-source-v1` | No team result yet | [`docs/experiments/EXP-001-baseline-reproduction.md`](docs/experiments/EXP-001-baseline-reproduction.md) |
+| EXP-001 | Official Track 2 baseline reproduction | Completed | `exp/baseline-reproduction` | `189cdc7` | `baseline/track2-source-v1` | Track 2 dev inference covered 5,250 target-speaker WAVs; overall SI-SDR -2.848, PESQ 1.256, STOI 0.470, UTMOS 1.176, DNSMOS ovr 1.396, CER 0.881, spk_sim 0.370 | [`docs/experiments/track2_dev_official_baseline.md`](docs/experiments/track2_dev_official_baseline.md) |
 
 `baseline/track2-source-v1` freezes the source code and collaboration workflow.
 It is not an experiment result and does not claim reproduction of the official
@@ -29,21 +29,27 @@ metrics.
 
 ## Current blockers and TODOs
 
-- TODO: challenge registration and `dev` access.
+- Track 2 dev is available locally at `/home/avse/data/track2_dev` for the
+  recorded baseline run.
 - TODO: confirm the purpose, contents, license, and storage location of all
   organizer-provided assets.
 - TODO: identify legal training data and document its license.
 - TODO: confirm training manifests and speaker-disjoint split policy.
-- TODO: audit the target server:
+- TODO: finish the shared target-server inventory:
   - GPU model, count, and VRAM;
   - NVIDIA driver, CUDA, Python, and PyTorch;
   - CPU, RAM, disk, shared storage, and job limits;
   - mixed RTX 4090/RTX 5090 DDP compatibility.
-- TODO: confirm Hugging Face authorization for the selected baseline model.
-- TODO: define external data, checkpoint, log, prediction, and submission roots.
+- Official Track 2 checkpoint is available locally at
+  `/home/avse/avse-assets/models/Real-World-AVSE-Baseline-Track2`.
+- External experiment artifacts are rooted under
+  `/home/avse/experiments/<experiment_name>`.
 - Source baseline commit: frozen by `baseline/track2-source-v1`.
-- TODO: freeze the evaluated checkpoint identity and evaluation protocol,
-  including face-alignment behavior and metric model versions.
+- Default Track 2 dev metric environment:
+  `/home/avse/avse_eval_py311`.
+- Before treating future results as leaderboard-comparable, reconfirm exact
+  checkpoint revision, data version, alignment behavior, and metric asset
+  revisions.
 
 ## Required metadata for every experiment
 
@@ -108,7 +114,8 @@ replace it only with verified information.
 
 ## Baseline reproduction acceptance criteria
 
-EXP-001 may become `Completed` only when:
+EXP-001 was marked `Completed` after these checks were satisfied for the
+available local Track 2 dev run:
 
 1. the immutable source tag, exact Git commit, and unchanged baseline
    configuration are recorded;
