@@ -2,13 +2,13 @@
 
 ## Summary
 
-- **Date:** 2026-07-02
+- **Date:** 2026-07-02 to 2026-07-04
 - **Branch:** `exp/baseline-reproduction`
-- **Purpose:** Reproduce official Track 2 baseline inference and available dev
-  evaluation metrics from local `config.json` + `model.safetensors`.
+- **Purpose:** Reproduce official Track 2 baseline inference and dev
+  evaluation from local `config.json` + `model.safetensors`.
 - **Conventions:** See `docs/experiment-conventions.md`.
-- **Status:** Inference complete; objective, DNSMOS, and speaker similarity
-  complete. UTMOS and CER are blocked by the current Python 3.8 environment.
+- **Status:** Inference and all currently supported dev metrics are complete:
+  objective, DNSMOS, speaker similarity, UTMOS, and CER/ASR.
 
 ## Inputs
 
@@ -21,11 +21,13 @@
 - **Compatibility data root:**
   `/home/avse/experiments/track2_dev_official_baseline/data_root`
 
-The released dev directory is flat (`mix/`, `remix/`, manifests). A symlink
+The released dev directory is flat (`mix/`, `remix`, manifests). A symlink
 tree was used so `RealTestDataset` could read its expected
-`track2/dev/{mix,remix}` layout without copying or modifying the original data.
+`track2/dev/{mix,remix}` layout without copying or modifying original data.
 
 ## Environment
+
+Enhancement and the first metric pass used the reusable GPU environment:
 
 - **Virtualenv:** `/home/avse/avse_gpu_venv`
 - **Python:** `3.8.10`
@@ -35,10 +37,35 @@ tree was used so `RealTestDataset` could read its expected
 - **Transformers:** `4.46.3`
 - **FunASR:** `1.3.1`
 - **ModelScope:** `1.20.1`
-- **GPU host check:** non-isolated `nvidia-smi` reported 8 x RTX 4090,
-  driver `550.144.03`, CUDA `12.4`.
-- **Sandbox note:** this Codex terminal does not expose `/dev/nvidia*`, so
-  `torch.cuda.is_available()` reports `False` inside sandboxed commands.
+
+UTMOS and CER required a Python 3.11 follow-up environment because UTMOSv2
+requires Python `>=3.9` and the bundled Qwen3 ASR config requires newer
+Transformers support:
+
+- **Virtualenv:** `/home/avse/avse_eval_py311`
+- **Python:** `3.11.15`
+- **PyTorch:** `2.7.1+cu126`
+- **Torchaudio:** `2.7.1+cu126`
+- **Torchvision:** `0.22.1+cu126`
+- **Transformers:** `5.13.0`
+- **FunASR:** `1.3.14`
+- **ModelScope:** `1.38.0`
+- **UTMOSv2:** `1.3.1.dev0`
+- **GPU used for follow-up metrics:** GPU 6, RTX 4090
+
+Notes:
+
+- Non-sandbox `nvidia-smi` reported 8 x RTX 4090, driver `550.144.03`,
+  CUDA `12.4`.
+- `eval_real.py` uses its own `--gpus` argument. Passing only an outer
+  `CUDA_VISIBLE_DEVICES=6` is insufficient because the script defaults
+  `--gpus 0` and overwrites the environment internally.
+- UTMOSv2 source install from GitHub timed out once, so the package was
+  installed from the existing local audit clone `/tmp/utmosv2-audit`.
+  The model weight was cached at
+  `/home/avse/.cache/utmosv2/models/fusion_stage3/fold0_s42_best_model.pth`;
+  the same weight also exists under
+  `/home/avse/avse-assets/evaluation/utmosv2/models/fusion_stage3/`.
 
 ## Weight Check
 
@@ -67,7 +94,7 @@ CUDA_VISIBLE_DEVICES=3 /home/avse/avse_gpu_venv/bin/python eval_real.py \
   --gpus 0
 ```
 
-Metrics were then run in eval-only mode over the saved WAVs:
+Eval-only metrics over the saved WAVs:
 
 ```bash
 # Reference metrics on remix, 4 shards, then --merge_shards
@@ -84,11 +111,14 @@ DNSMOS_DIR=/home/avse/avse-assets/evaluation/dnsmos \
   --metrics spk --mode eval --num_shards 8 \
   --wespeaker_ckpt /home/avse/avse-assets/evaluation/wespeaker/cnceleb-resnet34-LM/model_5.pt \
   --enroll_ckpt /home/avse/experiments/track2_dev_official_baseline/metrics/enroll_dev.pt
+
+# UTMOS + CER/ASR in Python 3.11, sequential, tmux-safe.
+/home/avse/experiments/track2_dev_official_baseline/scripts/run_missing_metrics_py311.sh
 ```
 
-CPU/GPU metric execution should have the same evaluation meaning here because
-the enhancement WAVs were already fixed on disk. Device choice only affects
-runtime, aside from tiny floating-point differences.
+The follow-up script first checks whether `utmos_summary.csv` and
+`asr_summary.csv` already contain `overall,5250`; complete metrics are skipped
+to avoid repeated high-cost work.
 
 ## Inference Result
 
@@ -109,111 +139,65 @@ whole-face fallback path. No original dev file was changed.
 
 ## Metrics
 
-| scope | n | SI-SDR | PESQ | STOI | DNSMOS p808 | DNSMOS sig | DNSMOS bak | DNSMOS ovr | spk_sim |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **overall** | 5250 | -2.848 | 1.256 | 0.470 | 2.370 | 1.745 | 1.704 | 1.396 | 0.370 |
-| track2 / mix | 3054 | -- | -- | -- | 2.402 | 1.819 | 1.776 | 1.449 | 0.384 |
-| track2 / remix | 2196 | -2.848 | 1.256 | 0.470 | 2.326 | 1.642 | 1.603 | 1.322 | 0.351 |
+| scope | n | SI-SDR | PESQ | STOI | UTMOS | DNSMOS p808 | DNSMOS sig | DNSMOS bak | DNSMOS ovr | CER | spk_sim |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **overall** | 5250 | -2.848 | 1.256 | 0.470 | 1.176 | 2.370 | 1.745 | 1.704 | 1.396 | 0.881 | 0.370 |
+| track2 / mix | 3054 | -- | -- | -- | 1.184 | 2.402 | 1.819 | 1.776 | 1.449 | 0.892 | 0.384 |
+| track2 / remix | 2196 | -2.848 | 1.256 | 0.470 | 1.164 | 2.326 | 1.642 | 1.603 | 1.322 | 0.866 | 0.351 |
 
 Artifacts:
 
 - `metrics/objective.csv`, `metrics/objective_summary.csv`
 - `metrics/dnsmos.csv`, `metrics/dnsmos_summary.csv`
 - `metrics/spk.csv`, `metrics/spk_summary.csv`
+- `metrics/utmos.csv`, `metrics/utmos_summary.csv`
+- `metrics/asr.csv`, `metrics/asr_summary.csv`
 - `metrics/enroll_dev.pt`
 
 ## README Comparison
 
-The README Track 2 dev reference row reports all metrics. This run reproduced
-the metrics available in the current environment:
+The README Track 2 dev reference row reports the official baseline reference
+table. This run is close on objective, UTMOS, DNSMOS overall, and speaker
+metrics. CER is lower than the README overall because remix CER is much lower in
+this run, while mix CER is higher.
 
 | scope | metric | this run | README | delta |
 |---|---|---:|---:|---:|
 | overall/remix | SI-SDR | -2.848 | -2.700 | -0.148 |
 | overall/remix | PESQ | 1.256 | 1.243 | +0.013 |
 | overall/remix | STOI | 0.470 | 0.469 | +0.001 |
+| overall | UTMOS | 1.176 | 1.174 | +0.002 |
 | overall | DNSMOS p808 | 2.370 | 2.324 | +0.046 |
 | overall | DNSMOS sig | 1.745 | 1.655 | +0.090 |
 | overall | DNSMOS bak | 1.704 | 1.658 | +0.046 |
 | overall | DNSMOS ovr | 1.396 | 1.356 | +0.040 |
+| overall | CER | 0.881 | 0.915 | -0.034 |
 | overall | spk_sim | 0.370 | 0.370 | +0.000 |
+| track2 / mix | UTMOS | 1.184 | 1.167 | +0.017 |
 | track2 / mix | DNSMOS ovr | 1.449 | 1.384 | +0.065 |
+| track2 / mix | CER | 0.892 | 0.815 | +0.077 |
 | track2 / mix | spk_sim | 0.384 | 0.383 | +0.001 |
+| track2 / remix | UTMOS | 1.164 | 1.183 | -0.019 |
 | track2 / remix | DNSMOS ovr | 1.322 | 1.319 | +0.003 |
+| track2 / remix | CER | 0.866 | 1.053 | -0.187 |
 | track2 / remix | spk_sim | 0.351 | 0.352 | -0.001 |
 
-The reproduced values are close to the README table for objective and speaker
-metrics. DNSMOS is consistently higher in this run, likely due metric/runtime
-version differences; the README itself notes that exact checkpoint revision,
-metric-cache revisions, command, and alignment setting still need to be
-attached before treating that table as a strict reproducible reference.
+Residual differences are expected until metric package versions, cache
+revisions, and face-alignment/fallback behavior are pinned exactly against the
+README reference run. DNSMOS remains consistently higher than the README table,
+which points to metric/runtime differences rather than inference failure.
 
-## Missing Metrics
+## Smoke And Failure Notes
 
-- **UTMOS:** not computed. The available UTMOSv2 package now requires Python
-  `>=3.9`, while the current reusable GPU venv is Python `3.8.10`.
-- **CER:** Fun-ASR smoke loaded the local remote code but failed on every item
-  because the bundled `Qwen3-0.6B/config.json` requires Transformers `4.51.0`.
-  Python 3.8 only exposed installable Transformers versions up to `4.46.3` in
-  this environment, so `qwen3` is not recognized.
-
-## Follow-up Environment For UTMOS/CER
-
-The machine currently exposes only `/usr/bin/python3.8` on PATH and has no
-`conda`, `mamba`, `micromamba`, `uv`, or `pyenv`. The recommended follow-up is
-to create an isolated Python 3.11 evaluation environment outside the repository:
-
-```bash
-# Tool install location, outside Git.
-cd /home/avse
-curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest \
-  -o /home/avse/micromamba-linux-64.tar.bz2
-mkdir -p /home/avse/micromamba-bin
-tar -xjf /home/avse/micromamba-linux-64.tar.bz2 -C /home/avse/micromamba-bin bin/micromamba
-
-# New evaluation environment.
-/home/avse/micromamba-bin/bin/micromamba create -y \
-  -p /home/avse/avse_eval_py311 \
-  -c pytorch -c nvidia -c conda-forge \
-  python=3.11 pytorch torchaudio pytorch-cuda=12.1
-
-/home/avse/avse_eval_py311/bin/python -m pip install \
-  -r /home/avse/workspace-goodparts/requirements.txt \
-  transformers==4.51.0 funasr modelscope utmosv2
-```
-
-After the environment is ready, rerun eval-only metrics over the already fixed
-enhancement WAVs:
-
-```bash
-cd /home/avse/workspace-goodparts
-
-# UTMOS, can be sharded if slow.
-/home/avse/avse_eval_py311/bin/python eval_real.py \
-  --conf_dir configs/track2_av_convtasnet.yml \
-  --data_root /home/avse/experiments/track2_dev_official_baseline/data_root \
-  --track track2 --scene both --split dev \
-  --metrics utmos --mode eval \
-  --save_dir /home/avse/experiments/track2_dev_official_baseline/full/enhanced \
-  --out_csv /home/avse/experiments/track2_dev_official_baseline/metrics/utmos.csv
-
-# CER with local Fun-ASR resources.
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 MODELSCOPE_OFFLINE=1 \
-  /home/avse/avse_eval_py311/bin/python eval_real.py \
-  --conf_dir configs/track2_av_convtasnet.yml \
-  --data_root /home/avse/experiments/track2_dev_official_baseline/data_root \
-  --track track2 --scene both --split dev \
-  --metrics asr --mode eval \
-  --save_dir /home/avse/experiments/track2_dev_official_baseline/full/enhanced \
-  --out_csv /home/avse/experiments/track2_dev_official_baseline/metrics/asr.csv \
-  --funasr_model /home/avse/avse-assets/evaluation/funasr/Fun-ASR-Nano-2512 \
-  --funasr_vad_model /home/avse/avse-assets/evaluation/funasr/fsmn-vad \
-  --funasr_remote_code Fun-ASR/model.py
-```
-
-On 2026-07-02, Codex attempted to download micromamba for this follow-up
-environment, but the network action was blocked by the current Codex usage
-limit. No partial environment was created.
+- Initial UTMOS smoke in Python 3.8 was blocked by Python version support.
+- Initial CER smoke in Python 3.8 failed because the local Qwen3 config was not
+  supported by Transformers `4.46.3`.
+- The first Python 3.11 UTMOS smoke accidentally used `--gpus 0`, because
+  `eval_real.py` overwrites `CUDA_VISIBLE_DEVICES` from its own argument. It
+  OOMed on busy GPU 0 and produced no valid UTMOS values. Rerunning with
+  `--gpus 6` succeeded.
+- The final full UTMOS and ASR runs used `--gpus 6` and completed:
+  UTMOS from 2026-07-04 11:34 to 12:52, ASR from 12:52 to 13:39.
 
 ## Code Notes
 
@@ -225,6 +209,7 @@ limit. No partial environment was created.
 
 - Decide whether to keep the NumPy pickle compatibility patch in the baseline
   branch, or regenerate landmark pickles with the target runtime.
-- Create a Python `>=3.9` evaluation environment before rerunning UTMOS and CER.
+- Decide whether the Python 3.11 evaluation environment should be documented as
+  the default evaluation path for UTMOS/CER.
 - If README values are used as a release-quality reference, pin metric package
   versions and record whether landmark alignment fallback occurred.
