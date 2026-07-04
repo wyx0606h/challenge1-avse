@@ -193,7 +193,10 @@ baseline 的 Track 2 数据管线覆盖：
 
 `mix` 没有干净参考，因此不能本地计算 SI-SDR、PESQ、STOI。研究时不能只优化 SI-SDR：过强抑制可能提高部分信号指标，却损害 CER、自然度或说话人身份。
 
-官方 README 公布的 Track 2 dev baseline 整体结果包括 remix SI-SDR 约 `-2.70 dB`、整体 CER 约 `0.915`。这些数值只用于复现参照；必须使用相同 commit、checkpoint、对齐设置和指标模型才能做严谨比较。
+官方 README 公布的 Track 2 dev baseline 整体结果包括 remix SI-SDR 约
+`-2.70 dB`、整体 CER 约 `0.915`。这些数值在当前阶段只作为量级参照，
+不要求 bit-for-bit 严格复现。当前本地完整复现结果记录在
+`docs/experiments/track2_dev_official_baseline.md`。
 
 ## 7. 环境和 baseline 复现
 
@@ -239,6 +242,10 @@ python tools/check_track2_setup.py --eval-asset-root "$EVAL_ASSET_ROOT"
 
 `tools/download_eval_assets.sh` 只依赖 Bash、`aria2c` 和网络，不需要先安装
 Python/Conda；因此可以在 dev 到手前完成全部评测模型准备。
+
+当前本机默认评估环境是 `/home/avse/avse_eval_py311`。它用于 Track 2 dev
+全量指标，尤其是 UTMOS 和 CER/Fun-ASR。旧环境
+`/home/avse/avse_gpu_venv` 仍可复用来做增强推理和 Python 3.8 兼容指标。
 
 `enroll_dev.pt` 不能提前下载或凭空生成；拿到 dev 后使用其中干净的
 `remix/s1.wav`、`s2.wav` 与已准备好的 WeSpeaker 权重生成，并保存到
@@ -323,6 +330,11 @@ bash run_eval_real.sh \
 ```
 
 完整 Track 2 dev 应覆盖 5,250 个目标评测项。建议把增强和评分拆开执行，便于修改指标而不重复昂贵推理。
+
+本机已完成的 baseline 复现采用拆分流程：先用官方权重生成增强 wav，再在
+`/home/avse/avse_eval_py311` 中补齐 UTMOS 和 CER。结果统一保存到
+`/home/avse/experiments/track2_dev_official_baseline`，详细表格见
+`docs/experiments/track2_dev_official_baseline.md`。
 
 注意：`eval_real.py` 的 `--mode` 默认值是 `both`，但
 `run_eval_real.sh` 的第七个位置参数默认值是 `eval`。上面的 `"" both`

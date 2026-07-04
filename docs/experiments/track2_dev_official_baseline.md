@@ -154,6 +154,29 @@ Artifacts:
 - `metrics/asr.csv`, `metrics/asr_summary.csv`
 - `metrics/enroll_dev.pt`
 
+## Baseline Reproduction Summary
+
+The official Track 2 baseline was reproduced as an eval-only workflow:
+
+- local official `AV_ConvTasNet` weights loaded strictly from
+  `/home/avse/avse-assets/models/Real-World-AVSE-Baseline-Track2`;
+- Track 2 dev was read through the repository `RealTestDataset` path using the
+  compatibility symlink tree under the experiment directory;
+- enhancement generated 5,250 target-speaker WAVs without NaN/Inf or all-zero
+  output;
+- all supported metrics were then computed from the fixed enhanced WAVs, so
+  later metric reruns did not repeat baseline inference.
+
+For future Track 2 dev evaluation, `/home/avse/avse_eval_py311` is the default
+environment. The Python 3.8 environment remains documented because it produced
+the original enhancement and Python 3.8-compatible metrics, but UTMOS and CER
+should be run in Python 3.11.
+
+Strict bit-for-bit reproduction of the README reference table is not a current
+goal. The README values are kept as a sanity-check reference for scale and
+direction; the local run is sufficient for baseline reproduction and evaluation
+workflow validation.
+
 ## README Comparison
 
 The README Track 2 dev reference row reports the official baseline reference
@@ -182,10 +205,9 @@ this run, while mix CER is higher.
 | track2 / remix | CER | 0.866 | 1.053 | -0.187 |
 | track2 / remix | spk_sim | 0.351 | 0.352 | -0.001 |
 
-Residual differences are expected until metric package versions, cache
-revisions, and face-alignment/fallback behavior are pinned exactly against the
-README reference run. DNSMOS remains consistently higher than the README table,
-which points to metric/runtime differences rather than inference failure.
+Residual differences are acceptable for the current baseline-reproduction
+stage. DNSMOS remains consistently higher than the README table, which points
+to metric/runtime differences rather than inference failure.
 
 ## Smoke And Failure Notes
 
@@ -209,7 +231,7 @@ which points to metric/runtime differences rather than inference failure.
 
 - Decide whether to keep the NumPy pickle compatibility patch in the baseline
   branch, or regenerate landmark pickles with the target runtime.
-- Decide whether the Python 3.11 evaluation environment should be documented as
-  the default evaluation path for UTMOS/CER.
-- If README values are used as a release-quality reference, pin metric package
-  versions and record whether landmark alignment fallback occurred.
+- Keep `/home/avse/avse_eval_py311` as the default evaluation environment for
+  Track 2 dev metrics, especially UTMOS and CER.
+- README scores are treated as reference-scale values, not a strict
+  bit-for-bit target for this phase.

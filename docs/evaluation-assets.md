@@ -52,6 +52,23 @@ No `.aria2` partial-download files remained after preparation.
 This is a file-integrity check, not a runtime model-load claim. Runtime loading
 must be verified after the isolated Python/CUDA environment is installed.
 
+## Runtime environment
+
+The default local runtime for Track 2 dev evaluation is:
+
+- `/home/avse/avse_eval_py311`
+- Python `3.11.15`
+- PyTorch `2.7.1+cu126`
+- Torchaudio `2.7.1+cu126`
+- Transformers `5.13.0`
+- FunASR `1.3.14`
+- ModelScope `1.38.0`
+- UTMOSv2 `1.3.1.dev0`
+
+The older `/home/avse/avse_gpu_venv` remains useful for enhancement and
+metrics that are compatible with Python 3.8, but UTMOSv2 and the local
+Fun-ASR/Qwen3 configuration should be run from the Python 3.11 environment.
+
 ## Re-download
 
 The repository provides a Python-independent downloader:
