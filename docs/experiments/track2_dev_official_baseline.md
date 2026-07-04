@@ -180,34 +180,37 @@ workflow validation.
 ## README Comparison
 
 The README Track 2 dev reference row reports the official baseline reference
-table. This run is close on objective, UTMOS, DNSMOS overall, and speaker
-metrics. CER is lower than the README overall because remix CER is much lower in
-this run, while mix CER is higher.
+table refreshed in upstream commit `00e76b7`. This run is close on objective
+metrics, DNSMOS, and speaker similarity. CER is higher than the refreshed
+README overall because the local mix CER is higher; local remix CER is slightly
+lower than the refreshed README remix value.
 
 | scope | metric | this run | README | delta |
 |---|---|---:|---:|---:|
-| overall/remix | SI-SDR | -2.848 | -2.700 | -0.148 |
-| overall/remix | PESQ | 1.256 | 1.243 | +0.013 |
-| overall/remix | STOI | 0.470 | 0.469 | +0.001 |
-| overall | UTMOS | 1.176 | 1.174 | +0.002 |
-| overall | DNSMOS p808 | 2.370 | 2.324 | +0.046 |
-| overall | DNSMOS sig | 1.745 | 1.655 | +0.090 |
-| overall | DNSMOS bak | 1.704 | 1.658 | +0.046 |
-| overall | DNSMOS ovr | 1.396 | 1.356 | +0.040 |
-| overall | CER | 0.881 | 0.915 | -0.034 |
-| overall | spk_sim | 0.370 | 0.370 | +0.000 |
-| track2 / mix | UTMOS | 1.184 | 1.167 | +0.017 |
-| track2 / mix | DNSMOS ovr | 1.449 | 1.384 | +0.065 |
-| track2 / mix | CER | 0.892 | 0.815 | +0.077 |
-| track2 / mix | spk_sim | 0.384 | 0.383 | +0.001 |
-| track2 / remix | UTMOS | 1.164 | 1.183 | -0.019 |
-| track2 / remix | DNSMOS ovr | 1.322 | 1.319 | +0.003 |
-| track2 / remix | CER | 0.866 | 1.053 | -0.187 |
-| track2 / remix | spk_sim | 0.351 | 0.352 | -0.001 |
+| overall/remix | SI-SDR | -2.848 | -2.8507 | +0.0027 |
+| overall/remix | PESQ | 1.256 | 1.2556 | +0.0004 |
+| overall/remix | STOI | 0.470 | 0.4697 | +0.0003 |
+| overall | UTMOS | 1.176 | 1.1777 | -0.0017 |
+| overall | DNSMOS p808 | 2.370 | 2.3706 | -0.0006 |
+| overall | DNSMOS sig | 1.745 | 1.7458 | -0.0008 |
+| overall | DNSMOS bak | 1.704 | 1.7055 | -0.0015 |
+| overall | DNSMOS ovr | 1.396 | 1.3960 | +0.0000 |
+| overall | CER | 0.881 | 0.8707 | +0.0103 |
+| overall | spk_sim | 0.370 | 0.3704 | -0.0004 |
+| track2 / mix | UTMOS | 1.184 | 1.1875 | -0.0035 |
+| track2 / mix | DNSMOS ovr | 1.449 | 1.4492 | -0.0002 |
+| track2 / mix | CER | 0.892 | 0.8657 | +0.0263 |
+| track2 / mix | spk_sim | 0.384 | 0.3844 | -0.0004 |
+| track2 / remix | UTMOS | 1.164 | 1.1641 | -0.0001 |
+| track2 / remix | DNSMOS ovr | 1.322 | 1.3220 | +0.0000 |
+| track2 / remix | CER | 0.866 | 0.8776 | -0.0116 |
+| track2 / remix | spk_sim | 0.351 | 0.3509 | +0.0001 |
 
-Residual differences are acceptable for the current baseline-reproduction
-stage. DNSMOS remains consistently higher than the README table, which points
-to metric/runtime differences rather than inference failure.
+Residual differences are small enough for the current baseline-reproduction
+stage. The refreshed README table brings DNSMOS and objective metrics into
+near-exact agreement with the local run; remaining CER differences are
+scene-dependent and should be treated as ASR/runtime sensitivity rather than
+inference failure.
 
 ## Smoke And Failure Notes
 
