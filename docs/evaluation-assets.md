@@ -65,9 +65,18 @@ The default local runtime for Track 2 dev evaluation is:
 - ModelScope `1.38.0`
 - UTMOSv2 `1.3.1.dev0`
 
-The older `/home/avse/avse_gpu_venv` remains useful for enhancement and
-metrics that are compatible with Python 3.8, but UTMOSv2 and the local
-Fun-ASR/Qwen3 configuration should be run from the Python 3.11 environment.
+Environment roles:
+
+- `/home/avse/data_pipeline/.venv`: data-pipeline smoke and CPU checks.
+- `/home/avse/avse_gpu_venv`: baseline GPU inference and the preferred
+  starting point for future training smoke runs.
+- `/home/avse/avse_eval_py311`: full metric evaluation, especially UTMOS and
+  CER/Fun-ASR.
+
+Do not use `/home/avse/avse_eval_py311` as the default training environment.
+If training dependencies conflict with `/home/avse/avse_gpu_venv`, create a
+dedicated training environment such as `/home/avse/avse_train_venv` and record
+it in the experiment documentation.
 
 ## Re-download
 

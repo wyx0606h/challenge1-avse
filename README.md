@@ -116,6 +116,23 @@ The current training code writes under `Experiments/` by default. That directory
 is ignored, but on the server the preferred long-term output root and storage
 quota are **TODO**. Do not hard-code a personal server path into tracked files.
 
+### Local environment roles
+
+Use separate environments for data preparation, training/inference, and full
+metric evaluation:
+
+| Task | Default environment | Notes |
+|---|---|---|
+| Data-pipeline smoke and CPU checks | `/home/avse/data_pipeline/.venv` | Owned by the separate data-pipeline repo. Do not use it for baseline model training. |
+| Baseline inference and training startup | `/home/avse/avse_gpu_venv` | This is the preferred starting environment for future training smoke runs because the baseline GPU inference path has already run there. |
+| Full Track 2 dev evaluation | `/home/avse/avse_eval_py311` | Default for UTMOS, CER/Fun-ASR, and future metric reruns. |
+
+Keep `/home/avse/avse_eval_py311` as an evaluation environment, not the default
+training environment. If future training work hits dependency conflicts in
+`/home/avse/avse_gpu_venv`, create a dedicated training environment such as
+`/home/avse/avse_train_venv` and record it in the experiment report before
+running formal training.
+
 ### Environment variables and Hugging Face access
 
 There is no `HF_ACCESS` variable in the codebase. `HF_ACCESS` is only a status

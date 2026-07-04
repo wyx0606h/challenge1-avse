@@ -243,9 +243,17 @@ python tools/check_track2_setup.py --eval-asset-root "$EVAL_ASSET_ROOT"
 `tools/download_eval_assets.sh` 只依赖 Bash、`aria2c` 和网络，不需要先安装
 Python/Conda；因此可以在 dev 到手前完成全部评测模型准备。
 
-当前本机默认评估环境是 `/home/avse/avse_eval_py311`。它用于 Track 2 dev
-全量指标，尤其是 UTMOS 和 CER/Fun-ASR。旧环境
-`/home/avse/avse_gpu_venv` 仍可复用来做增强推理和 Python 3.8 兼容指标。
+当前本机环境分工如下：
+
+| 用途 | 默认环境 | 说明 |
+|---|---|---|
+| 数据管线 smoke / CPU 检查 | `/home/avse/data_pipeline/.venv` | 属于 `/home/avse/data_pipeline`，不要作为 baseline 训练环境 |
+| baseline 推理和训练起步 | `/home/avse/avse_gpu_venv` | 已跑通过 GPU baseline 推理，后续训练 smoke 优先从这里开始 |
+| Track 2 dev 全量评估 | `/home/avse/avse_eval_py311` | 默认评估环境，尤其用于 UTMOS 和 CER/Fun-ASR |
+
+不要把 `/home/avse/avse_eval_py311` 当作默认训练环境；它是评估专用环境。
+如果后续训练依赖与 `/home/avse/avse_gpu_venv` 冲突，再新建并记录专用
+训练环境，例如 `/home/avse/avse_train_venv`。
 
 `enroll_dev.pt` 不能提前下载或凭空生成；拿到 dev 后使用其中干净的
 `remix/s1.wav`、`s2.wav` 与已准备好的 WeSpeaker 权重生成，并保存到
