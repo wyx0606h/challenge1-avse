@@ -179,6 +179,23 @@ baseline 的 Track 2 数据管线覆盖：
 
 只有目标人的视觉流被退化，音频不变。训练退化随机生成；验证和内部测试按样本索引固定随机种子，便于重复实验。
 
+`degrade_prob` 控制一次 Dataset 读取中是否对目标人视频施加在线退化；
+如果命中退化，具体退化类型和参数由官方 Dataset 代码随机采样。官方
+Track 2 baseline 训练配置固定为 `degrade_prob=1.0`，不是离线预处理步骤。
+
+建议本地训练按阶段使用：
+
+| 阶段 | 建议值 | 说明 |
+|---|---:|---|
+| 数据 sanity、DataLoader smoke、小数据 overfit | `0.0` | 先关闭随机视觉扰动，便于定位数据和优化问题 |
+| 训练 warm-up / ablation | `0.5` | 干净视觉和退化视觉混合，可观察鲁棒性收益 |
+| 官方风格 Track 2 鲁棒训练 | `1.0` | 对齐官方 baseline 配置 |
+| 官方 dev 推理评估 | 不使用 | `eval_real.py` 走 `RealTestDataset`，不要额外叠加随机退化 |
+
+如果自建数据没有 landmark，官方 Dataset 在抽到 mouth occlusion 时会走
+fallback；训练可以继续，但 landmark-based mouth occlusion 没有被完整覆盖。
+若后续补齐 landmark，应重新跑 `degrade_prob=1` 的 Dataset/DataLoader smoke。
+
 ## 6. 评测指标
 
 | 指标 | 场景 | 方向 | 含义 |

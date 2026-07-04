@@ -133,6 +133,13 @@ training environment. If future training work hits dependency conflicts in
 `/home/avse/avse_train_venv` and record it in the experiment report before
 running formal training.
 
+For Track 2 training, visual degradation is applied online by the Dataset. The
+released Track 2 baseline config uses `degrade_prob: 1.0`. Use `degrade_prob=0`
+for data sanity checks and small overfit runs, optionally `0.5` for warm-up or
+ablation, and `1.0` for official-style robust training. Do not apply this
+training parameter when evaluating official dev with `eval_real.py` /
+`RealTestDataset`.
+
 ### Environment variables and Hugging Face access
 
 There is no `HF_ACCESS` variable in the codebase. `HF_ACCESS` is only a status

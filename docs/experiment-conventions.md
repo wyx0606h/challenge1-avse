@@ -27,8 +27,12 @@ paths.
   bundled Fun-ASR/Qwen3 path require the Python 3.11 environment.
 - Do not use `/home/avse/avse_eval_py311` as the default training environment;
   treat it as the metric/evaluation environment.
-- Visual degradation is controlled online by the Dataset. Small-data overfit
-  experiments use `degrade_prob=0`.
+- Visual degradation is controlled online by the Track 2 Dataset, not written
+  into MP4 files by preprocessing. The official Track 2 baseline training
+  config uses `degrade_prob=1.0`; data sanity, DataLoader smoke, and small-data
+  overfit experiments use `degrade_prob=0`; `degrade_prob=0.5` is a useful
+  warm-up/ablation setting. Official dev evaluation through `eval_real.py` /
+  `RealTestDataset` should not add extra `degrade_prob` degradation.
 
 Do not write checkpoints, generated WAV files, raw logs, or large predictions
 inside the Git repository.
