@@ -22,18 +22,20 @@ Current team status:
 | Official baseline source imported | Completed |
 | Track 2 setup/data validation tools | Completed |
 | Stable source baseline | `main` at tag `baseline/track2-source-v1` after the repository-organization merge |
-| Server environment | TODO — not yet audited on the target server |
-| Official challenge `dev` access | TODO — team registration is pending |
+| Server environment | Local baseline/evaluation environments documented; default evaluation env is `/home/avse/avse_eval_py311` |
+| Official challenge `dev` access | Available locally at `/home/avse/data/track2_dev` for the recorded Track 2 dev run |
 | Training data source and license | TODO — not yet confirmed |
-| Hugging Face checkpoint access | TODO — account authorization must be confirmed |
-| Baseline smoke test on real challenge data | TODO — blocked by data and environment |
-| Full baseline reproduction | TODO — no team reproduction result is claimed yet |
-| Available compute | Expected: 3× RTX 4090 + 1× RTX 5090; driver, VRAM, CPU, RAM, disk, and mixed-GPU compatibility are TODO |
+| Hugging Face checkpoint access | Official Track 2 checkpoint available locally under `/home/avse/avse-assets/models/Real-World-AVSE-Baseline-Track2` |
+| Baseline smoke test on real challenge data | Completed for Track 2 dev |
+| Full baseline reproduction | Completed for the available Track 2 dev set; see `EXP-001` |
+| Available compute | GPU execution was used for enhancement and GPU-compatible metrics; exact shared-server inventory remains TODO |
 
-Do not interpret the reference scores later in this README as team reproduction
-results. A result is considered reproduced only after it has a recorded Git
-commit, configuration, checkpoint identity, data version, random seed, command,
-environment snapshot, logs, and complete metrics.
+The Track 2 dev baseline result is recorded in
+[EXPERIMENTS.md](EXPERIMENTS.md) and
+[docs/experiments/track2_dev_official_baseline.md](docs/experiments/track2_dev_official_baseline.md).
+The reference scores later in this README remain upstream/reference-scale
+numbers; use the experiment report for local paths, environment, commands,
+logs, and metric outputs.
 
 ### Branch and baseline policy
 
@@ -85,8 +87,14 @@ Repository collaboration documents:
 
 - [AGENTS.md](AGENTS.md) — rules for human and automated contributors.
 - [EXPERIMENTS.md](EXPERIMENTS.md) — experiment index and required metadata.
+- [docs/experiment-conventions.md](docs/experiment-conventions.md) — local
+  path, branch, environment, and artifact conventions.
+- [docs/evaluation-assets.md](docs/evaluation-assets.md) — local evaluation
+  asset inventory and default Python 3.11 metric environment.
 - [docs/experiment-template.md](docs/experiment-template.md) — copyable
   per-experiment record.
+- [docs/experiments/track2_dev_official_baseline.md](docs/experiments/track2_dev_official_baseline.md) —
+  completed Track 2 dev official-baseline reproduction and evaluation report.
 - [docs/TRACK2_CHALLENGE_GUIDE_ZH.md](docs/TRACK2_CHALLENGE_GUIDE_ZH.md) —
   Track 2 reproduction guide.
 - [UPSTREAM.md](UPSTREAM.md) — official baseline provenance and upstream sync.
@@ -507,6 +515,28 @@ Reference scores from the released checkpoints on the **dev** split (`--split de
 | track2 / remix | 2196 | −2.70 | 1.243 | 0.469 | 1.183 | 2.294 | 1.613 | 1.657 | 1.319 | 1.053 | 0.352 |
 
 These are intentionally modest — the baseline highlights the real-world domain gap rather than a tuned system. CER is a fraction (lower is better); SI-SDR is in dB.
+
+**Local Track 2 dev reproduction**
+
+The local Track 2 dev run used `/home/avse/data/track2_dev`, the official
+Track 2 checkpoint in `/home/avse/avse-assets/models/Real-World-AVSE-Baseline-Track2`,
+and saved artifacts under
+`/home/avse/experiments/track2_dev_official_baseline`. Metric evaluation now
+defaults to Python 3.11 environment `/home/avse/avse_eval_py311`; older
+Python 3.8-compatible pieces remain documented in the experiment report.
+
+| scope | n | SI-SDR | PESQ | STOI | UTMOS | DNSMOS p808 | DNSMOS sig | DNSMOS bak | DNSMOS ovr | CER | spk_sim |
+|-------|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **overall** | 5250 | −2.848 | 1.256 | 0.470 | 1.176 | 2.370 | 1.745 | 1.704 | 1.396 | 0.881 | 0.370 |
+| track2 / mix | 3054 | — | — | — | 1.184 | 2.402 | 1.819 | 1.776 | 1.449 | 0.892 | 0.384 |
+| track2 / remix | 2196 | −2.848 | 1.256 | 0.470 | 1.164 | 2.326 | 1.642 | 1.603 | 1.322 | 0.866 | 0.351 |
+
+See
+[docs/experiments/track2_dev_official_baseline.md](docs/experiments/track2_dev_official_baseline.md)
+for the complete DNSMOS breakdown, commands, environment snapshot, README
+comparison, and known caveats. Strict bit-for-bit reproduction of the README
+table is not required for current research work; the local run is treated as
+the stable baseline reference for subsequent `exp/*` branches.
 
 ---
 

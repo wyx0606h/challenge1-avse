@@ -12,15 +12,20 @@ The project has two ordered goals:
 2. develop and evaluate research improvements, especially visual-reliability
    aware fusion, only after the baseline is reproducible.
 
-Current phase: **repository organization and baseline preparation**.
+Current phase: **baseline reproduced locally on Track 2 dev; research branches
+may build from the recorded baseline reference**.
 
-The team has not yet claimed a baseline reproduction. Challenge `dev` access,
-training data, licenses, final server paths, and the full server hardware
-inventory are **TODO / pending confirmation**.
+The team has completed a local official Track 2 dev baseline reproduction and
+evaluation under `EXP-001`. The detailed record is
+`docs/experiments/track2_dev_official_baseline.md`; artifacts remain outside
+Git under `/home/avse/experiments/track2_dev_official_baseline`. Training data,
+licenses, final shared-server paths, and the full server hardware inventory are
+still **TODO / pending confirmation**.
 
 The repository source baseline is frozen by the immutable tag
 `baseline/track2-source-v1`. This tag records source code and collaboration
 workflow only; it does not claim that official metrics have been reproduced.
+The local reproduction result is tracked separately in `EXPERIMENTS.md`.
 
 ## Repository map
 
