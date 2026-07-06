@@ -9,6 +9,8 @@ paths.
 - Current CPU smoke environment: `/home/avse/data_pipeline/.venv`
 - Legacy GPU environment for enhancement and Python 3.8-compatible metrics:
   `/home/avse/avse_gpu_venv`
+- Current GPU environment for short Track 2 baseline training/fine-tuning
+  sanity runs: `/home/avse/avse_gpu_venv`
 - Default Track 2 dev evaluation environment for UTMOS/CER and future metric
   reruns: `/home/avse/avse_eval_py311`
 - Current smoke data: `/home/avse/data_pipeline/outputs/chinese_lips_baseline_smoke`
