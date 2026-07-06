@@ -11,6 +11,9 @@
   regressed badly. Treat this as a failed fine-tuning sanity, not an improved
   model.
 
+Follow-up low-LR gate results are recorded in
+`docs/experiments/track2_chineselips_finetune_degrade0_lr_sweep.md`.
+
 ## Inputs
 
 - **Repository:** `/home/avse/workspace-goodparts`
