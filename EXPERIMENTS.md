@@ -34,7 +34,16 @@ metrics.
 - TODO: challenge registration and `dev` access.
 - TODO: confirm the purpose, contents, license, and storage location of all
   organizer-provided assets.
-- TODO: identify legal training data and document its license.
+- Current local path conventions are recorded in
+  `docs/experiment-conventions.md`, including:
+  - training root: `/home/avse/processed_Chineselips`;
+  - Track 2 dev contents: `/home/avse/data/track2_dev`;
+  - tool-compatible `DATA_ROOT` wrapper:
+    `/home/avse/experiments/track2_dev_official_baseline/data_root`;
+  - evaluation assets: `/home/avse/avse-assets/evaluation`;
+  - training Python: `/home/avse/avse_gpu_venv/bin/python`;
+  - evaluation Python: `/home/avse/avse_eval_py311/bin/python`.
+- TODO: identify legal training data and document its license/status.
 - TODO: confirm training manifests and speaker-disjoint split policy.
 - TODO: audit the target server:
   - GPU model, count, and VRAM;
@@ -42,7 +51,9 @@ metrics.
   - CPU, RAM, disk, shared storage, and job limits;
   - mixed RTX 4090/RTX 5090 DDP compatibility.
 - TODO: confirm Hugging Face authorization for the selected baseline model.
-- TODO: define external data, checkpoint, log, prediction, and submission roots.
+- TODO: define final shared checkpoint, log, prediction, and submission roots
+  and storage quota. Use external ignored storage such as `/home/avse/experiments/`
+  until that policy is finalized.
 - Source baseline commit: frozen by `baseline/track2-source-v1`.
 - TODO: freeze the evaluated checkpoint identity and evaluation protocol,
   including face-alignment behavior and metric model versions.

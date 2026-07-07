@@ -14,9 +14,10 @@ The project has two ordered goals:
 
 Current phase: **repository organization and baseline preparation**.
 
-The team has not yet claimed a baseline reproduction. Challenge `dev` access,
-training data, licenses, final server paths, and the full server hardware
-inventory are **TODO / pending confirmation**.
+The team has not yet claimed a baseline reproduction. Current local server
+paths are documented for repeatability, but challenge access/license status,
+final artifact policy, and the full server hardware inventory are still
+**TODO / pending confirmation**.
 
 The repository source baseline is frozen by the immutable tag
 `baseline/track2-source-v1`. This tag records source code and collaboration
@@ -31,6 +32,8 @@ workflow only; it does not claim that official metrics have been reproduced.
 - `tools/`: repository, environment, and data validation tools.
 - `scripts/`: small reproducibility and smoke-test scripts.
 - `docs/`: team guides and experiment templates.
+- `docs/experiment-conventions.md`: current local path, environment, branch,
+  data-root, and artifact-root conventions.
 - `train.py`: training entry point.
 - `test.py`: training-corpus test-split evaluation.
 - `eval_real.py`: challenge inference, evaluation, and submission generation.
@@ -40,6 +43,11 @@ workflow only; it does not claim that official metrics have been reproduced.
 Do not create a lowercase root `experiments/` directory. It is easily confused
 with the generated `Experiments/` directory on case-insensitive systems. Store
 small tracked experiment reports under `docs/experiments/` when needed.
+
+Current local experiment conventions are tracked in
+`docs/experiment-conventions.md`. Update that file when the shared path,
+environment, branch, or artifact-root policy changes instead of repeating the
+same details across experiment reports.
 
 ## Baseline protection
 

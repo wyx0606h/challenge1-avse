@@ -9,6 +9,10 @@ docs/experiments/EXP-XXX-short-name.md
 Do not overwrite `TODO` with guesses. Do not set `Status: Completed` until the
 formal run and artifact verification have both succeeded.
 
+Use `docs/experiment-conventions.md` for current shared local paths,
+environments, data roots, and artifact-root conventions. Record only the
+experiment-specific deviations here.
+
 ## Summary
 
 - **Experiment ID:** EXP-XXX
@@ -65,6 +69,7 @@ Include the complete configuration or a path to an immutable copy:
 
 ## Data
 
+- **Path conventions:** `docs/experiment-conventions.md`
 - **Dataset/source:** TODO
 - **Version/date:** TODO
 - **License/status:** TODO

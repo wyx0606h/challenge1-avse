@@ -45,30 +45,42 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 
 ## Data
 
-- **Dataset/source:** TODO / pending confirmation
+- **Dataset/source:** Processed Chinese Lips Track 2 training data, TODO verify source provenance in `/home/avse/data_pipeline`
 - **Version/date:** TODO
-- **License/status:** TODO
-- **Data path:** TODO
+- **License/status:** TODO / pending confirmation
+- **Training data path:** `/home/avse/processed_Chineselips`
+- **Challenge Track 2 dev contents:** `/home/avse/data/track2_dev`
+- **Tool-compatible evaluation `DATA_ROOT`:** `/home/avse/experiments/track2_dev_official_baseline/data_root`
+- **Evaluation assets:** `/home/avse/avse-assets/evaluation`
 - **Manifest/checksum:** TODO
-- **Train split:** `DataPreProcess/vox2/tr` TODO verify
-- **Validation split:** `DataPreProcess/vox2/cv` TODO verify
-- **Test split:** `DataPreProcess/vox2/tt` TODO verify
-- **Speaker-disjoint policy:** TODO
+- **Train split:** `/home/avse/processed_Chineselips/tr` TODO verify counts/checksums
+- **Validation split:** `/home/avse/processed_Chineselips/cv` TODO verify counts/checksums
+- **Test split:** `/home/avse/processed_Chineselips/tt` TODO verify counts/checksums
+- **Config path compatibility:** current config points to `DataPreProcess/vox2/{tr,cv,tt}`; before running, either update the dedicated config or create an untracked compatibility link/tree and record the choice.
+- **Speaker-disjoint policy:** TODO / pending confirmation
 - **Augmentation/degradation policy:** Track 2 online visual degradation, TODO verify exact run settings
+
+## Environment
+
+- **Training Python:** `/home/avse/avse_gpu_venv/bin/python`
+- **Evaluation Python:** `/home/avse/avse_eval_py311/bin/python`
+- **Path conventions:** `docs/experiment-conventions.md`
+- **GPU allocation:** TODO / pending confirmation
+- **CUDA/PyTorch inventory:** TODO / pending confirmation
 
 ## Commands
 
 ### Sanity check
 
 ```bash
-python -m compileall look2hear/models/av_convtasnet.py
+/home/avse/avse_gpu_venv/bin/python -m compileall look2hear/models/av_convtasnet.py
 # TODO: instantiate model after environment and video pretrain path are confirmed
 ```
 
 ### Formal run
 
 ```bash
-python train.py --conf_dir configs/track2_av_convtasnet_reliability_gate.yml
+/home/avse/avse_gpu_venv/bin/python train.py --conf_dir configs/track2_av_convtasnet_reliability_gate.yml
 ```
 
 ## Results

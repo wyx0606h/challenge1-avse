@@ -22,9 +22,10 @@ Current team status:
 | Official baseline source imported | Completed |
 | Track 2 setup/data validation tools | Completed |
 | Stable source baseline | `main` at tag `baseline/track2-source-v1` after the repository-organization merge |
+| Current local path conventions | Recorded in `docs/experiment-conventions.md` |
 | Server environment | TODO — not yet audited on the target server |
 | Official challenge `dev` access | TODO — team registration is pending |
-| Training data source and license | TODO — not yet confirmed |
+| Training data source and license | Local path recorded; license/status TODO |
 | Hugging Face checkpoint access | TODO — account authorization must be confirmed |
 | Baseline smoke test on real challenge data | TODO — blocked by data and environment |
 | Full baseline reproduction | TODO — no team reproduction result is claimed yet |
@@ -85,6 +86,8 @@ Repository collaboration documents:
 
 - [AGENTS.md](AGENTS.md) — rules for human and automated contributors.
 - [EXPERIMENTS.md](EXPERIMENTS.md) — experiment index and required metadata.
+- [docs/experiment-conventions.md](docs/experiment-conventions.md) — current
+  local paths, environments, data roots, and artifact conventions.
 - [docs/experiment-template.md](docs/experiment-template.md) — copyable
   per-experiment record.
 - [docs/TRACK2_CHALLENGE_GUIDE_ZH.md](docs/TRACK2_CHALLENGE_GUIDE_ZH.md) —
@@ -98,15 +101,17 @@ metadata only. Keep the following outside normal Git history:
 
 | Asset | Recommended location | Git policy |
 |---|---|---|
-| Training/challenge data | External shared storage | Never commit |
+| Training/challenge data | See `docs/experiment-conventions.md` | Never commit |
 | Pretrained and trained weights | External model storage or ignored local directory | Never commit |
-| Checkpoints and training logs | External experiment root | Never commit |
-| Enhanced audio and submissions | External output root | Never commit |
+| Checkpoints and training logs | External experiment root, preferably under `/home/avse/experiments/` on the current server | Never commit |
+| Enhanced audio and submissions | External output root, preferably under `/home/avse/experiments/` on the current server | Never commit |
 | Experiment records and small metric summaries | `EXPERIMENTS.md`, `docs/experiments/`, or another reviewed documentation path | Commit after verification |
 
 The current training code writes under `Experiments/` by default. That directory
 is ignored, but on the server the preferred long-term output root and storage
 quota are **TODO**. Do not hard-code a personal server path into tracked files.
+Current local paths for training data, challenge dev data, evaluation assets,
+and Python environments are recorded in `docs/experiment-conventions.md`.
 
 ### Environment variables and Hugging Face access
 
@@ -127,13 +132,15 @@ names only; `.env` is ignored and is not loaded automatically by this project.
 Common runtime overrides include:
 
 ```bash
-export DATA_ROOT=/external/path/to/Real-World-AVSE
-export SAVE_DIR=/external/path/to/outputs
+export DATA_ROOT=/home/avse/experiments/track2_dev_official_baseline/data_root
+export SAVE_DIR=/home/avse/experiments/<experiment-id>/enhanced
 export ENROLL_CKPT=/external/path/to/enroll_dev.pt
 ```
 
-The exact server paths are **TODO**. Verify them after the server repository,
-data, and storage layout are available.
+`DATA_ROOT` should be the corpus wrapper containing `track2/dev`. The actual
+Track 2 dev contents are at `/home/avse/data/track2_dev`, and the wrapper path
+above provides the layout expected by `eval_real.py` and
+`tools/check_track2_setup.py`.
 
 ### Baseline reproduction checklist
 
@@ -157,7 +164,7 @@ Useful commands after the required assets exist:
 python tools/check_track2_setup.py --check-env
 python tools/check_track2_setup.py --check-training-assets
 
-# Challenge data audit (DATA_ROOT is TODO until the team receives the data)
+# Challenge data audit
 python tools/check_track2_setup.py --data-root "$DATA_ROOT"
 
 # Minimal Track 2 inference check

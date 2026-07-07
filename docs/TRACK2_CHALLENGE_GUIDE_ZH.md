@@ -102,10 +102,22 @@ Real-World-AVSE/
 
 音频为 16 kHz 单声道；视频约为 25 fps。`.pkl` 是逐帧 68 点人脸关键点，可用于稳定裁剪。当前 baseline 的评测读取器默认会使用关键点做对齐，可用 `eval_real.py --no_align_face` 关闭并进行消融。
 
+当前服务器路径约定记录在 `docs/experiment-conventions.md`。其中：
+
+- 训练数据根目录：`/home/avse/processed_Chineselips`；
+- Track 2 dev 实际内容目录：`/home/avse/data/track2_dev`；
+- 评测工具应使用的 `DATA_ROOT` wrapper：
+  `/home/avse/experiments/track2_dev_official_baseline/data_root`；
+- 该 wrapper 下的 `track2/dev` 指向 `/home/avse/data/track2_dev`；
+- 评估模型与工具资产目录：`/home/avse/avse-assets/evaluation`；
+- 训练环境 Python：`/home/avse/avse_gpu_venv/bin/python`；
+- 评估环境 Python：`/home/avse/avse_eval_py311/bin/python`。
+
 获取数据后首先运行：
 
 ```bash
-python tools/check_track2_setup.py --data-root /path/to/Real-World-AVSE
+DATA_ROOT=/home/avse/experiments/track2_dev_official_baseline/data_root
+python tools/check_track2_setup.py --data-root "$DATA_ROOT"
 ```
 
 ## 4. Baseline：AV-ConvTasNet
