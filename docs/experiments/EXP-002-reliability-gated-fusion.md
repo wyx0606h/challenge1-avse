@@ -36,9 +36,10 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 ## Configuration
 
 - **Configuration file:** `configs/track2_av_convtasnet_reliability_gate.yml`
-- **Configuration snapshot/hash:** `sha256:6457a7aabeb51714fb2e15a8795a6e6fe4ff891933463a83c8baa47602e2defb`
+- **Configuration snapshot/hash:** `sha256:3310dca5d83d13bc3d508402e232556840972653b7e379150f07b5ea8ed72b14`
 - **Random seed:** TODO
 - **Batch size:** 8
+- **DataLoader workers:** 0 for the restart after a worker-side collate failure; this favors stability over throughput.
 - **Learning rate/scheduler:** Adam lr 0.001, ReduceLROnPlateau
 - **Epochs or stopping rule:** 500 epochs with early stopping patience 20
 - **Other changed parameters:** `fusion_type: reliability_gate`, `fusion_gate_hidden: 128`
@@ -117,5 +118,6 @@ Passed on 2026-07-07 before formal training:
 - One GPU forward pass on a batch shaped `(1, 32000)` audio and `(1, 50, 88, 88)` mouth frames produced finite output shaped `(1, 32000)`.
 - Environment check passed with 16 checks, 0 warnings, and 0 failures.
 - Track 2 dev wrapper path resolved and official manifest counts matched, but the setup checker reported missing `s1.pkl/s2.pkl` files for 483 dev clips; this does not block training on `/home/avse/processed_Chineselips`, but it must be accounted for before formal dev evaluation.
+- First formal attempt failed at epoch 0, batch 585/944 with PyTorch DataLoader worker error `Trying to resize storage that is not resizable`. Added an explicit Track 2 collate function that copies numpy mouth arrays into contiguous tensors before stacking, and reduced EXP-002 `num_workers` to 0 for the restart.
 
 No result yet. Do not mark completed until the formal run, artifacts, and metrics are verified.

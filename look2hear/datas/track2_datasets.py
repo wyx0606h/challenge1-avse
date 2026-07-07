@@ -53,6 +53,27 @@ FPS = 25
 SPEAKER_RE = re.compile(r"id\d+")  # VoxCeleb2 speaker token
 _EPS = 1e-8
 
+
+def _track2_collate(batch):
+    """Collate Track 2 samples with explicit numpy-to-tensor copies.
+
+    PyTorch's default multi-worker collate can hit "storage is not resizable"
+    when it builds shared-memory tensors from numpy-backed arrays. The dataset
+    returns mouth frames as numpy arrays, so convert them to regular contiguous
+    tensors before stacking.
+    """
+    mixtures, sources, mouths, filenames = zip(*batch)
+    mixtures = torch.stack([torch.as_tensor(x).clone() for x in mixtures], dim=0)
+    sources = torch.stack([torch.as_tensor(x).clone() for x in sources], dim=0)
+    mouths = torch.stack(
+        [
+            torch.as_tensor(np.ascontiguousarray(x).copy(), dtype=torch.float32)
+            for x in mouths
+        ],
+        dim=0,
+    )
+    return mixtures, sources, mouths, list(filenames)
+
 def normalize_tensor_wav(wav_tensor, eps=1e-8, std=None):
     """Mean/variance normalize a waveform tensor along the last axis."""
     mean = wav_tensor.mean(-1, keepdim=True)
@@ -538,6 +559,7 @@ class Track2DataModule(object):
             persistent_workers=self.persistent_workers,
             pin_memory=self.pin_memory,
             drop_last=True,
+            collate_fn=_track2_collate,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -549,6 +571,7 @@ class Track2DataModule(object):
             persistent_workers=self.persistent_workers,
             pin_memory=self.pin_memory,
             drop_last=True,
+            collate_fn=_track2_collate,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -560,6 +583,7 @@ class Track2DataModule(object):
             persistent_workers=self.persistent_workers,
             pin_memory=self.pin_memory,
             drop_last=False,
+            collate_fn=_track2_collate,
         )
 
     @property
@@ -569,7 +593,6 @@ class Track2DataModule(object):
     @property
     def make_sets(self):
         return self.data_train, self.data_val, self.data_test
-
 
 
 
