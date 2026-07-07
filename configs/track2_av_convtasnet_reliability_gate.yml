@@ -65,7 +65,7 @@ training:
 # Optimizer config
 optimizer:
   optim_name: adam
-  lr: 0.001
+  lr: 0.0001
   weight_decay: 0.0
 
 # Scheduler config
@@ -95,9 +95,9 @@ datamodule:
 
 # Experiment config
 exp:
-  exp_name: Track2-AVConvTasNet-ReliabilityGate
+  exp_name: Track2-AVConvTasNet-ReliabilityGate-ConservativeInit
 
 # SwanLab logger config (instantiated on rank 0 only)
 logger:
   project: Real-Wold-AVSE
-  experiment_name: Track2-AVConvTasNet-ReliabilityGate
+  experiment_name: Track2-AVConvTasNet-ReliabilityGate-ConservativeInit

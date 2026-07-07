@@ -36,16 +36,16 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 ## Configuration
 
 - **Configuration file:** `configs/track2_av_convtasnet_reliability_gate.yml`
-- **Configuration snapshot/hash:** `sha256:21ca1c7cb506cb483849c47d188204606d7205eaff842876246d158f9694f063`
+- **Configuration snapshot/hash:** `sha256:6a7a4dec3a7e644f690906a778972b24d6d0df6aacef9bffcaa77b16a96209a1`
 - **Random seed:** TODO
 - **Batch size:** 8
 - **DataLoader workers:** 0 for the restart after a worker-side collate failure; this favors stability over throughput.
-- **Learning rate/scheduler:** Adam lr 0.001, ReduceLROnPlateau
+- **Learning rate/scheduler:** Adam lr 0.0001, ReduceLROnPlateau
 - **Epochs or stopping rule:** 500 epochs with early stopping patience 20
 - **Other changed parameters:** `fusion_type: reliability_gate`, `fusion_gate_hidden: 128`
 - **Warm-start checkpoint:** `/home/avse/experiments/track2_chineselips_finetune_degrade0_lr_sweep/roundtrip/official_serialized.pth`
 - **Warm-start checksum:** `sha256:bc0980c00646c6fab34d0ee10a9eda54af772ea3a2e94b19150cd4b230e03576`
-- **Warm-start policy:** load matching official Track 2 baseline weights with `strict=False`; the new reliability gate is randomly initialized and the old concat projection is ignored. The frozen video encoder weights come from the checkpoint, so `videonet_config.pretrain` is `null`.
+- **Warm-start policy:** load matching official Track 2 baseline weights with `strict=False`; when the checkpoint contains the old `av_model.concat.conv1d` and the config selects `reliability_gate`, migrate the old concat projection into `audio_proj` and `video_proj`, initialize `out_proj` as identity, and initialize the gate near 1. The frozen video encoder weights come from the checkpoint, so `videonet_config.pretrain` is `null`.
 
 ## Data
 
@@ -121,5 +121,7 @@ Passed on 2026-07-07 before formal training:
 - First formal attempt failed at epoch 0, batch 585/944 with PyTorch DataLoader worker error `Trying to resize storage that is not resizable`. Added an explicit Track 2 collate function that copies numpy mouth arrays into contiguous tensors before stacking, and reduced EXP-002 `num_workers` to 0 for the restart.
 - Second formal attempt failed at epoch 0, batch 559/944 because a batch mixed 50-frame and 45-frame mouth tensors. Added Track 2 mouth-length normalization: sequences longer than the configured video length are truncated and shorter sequences are padded by repeating the final frame. Verified 11 train batches at batch size 8 all produced mouth tensors shaped `(8, 50, 88, 88)`.
 - Third formal attempt failed immediately with CUDA OOM on GPU 3 because another active `track1_av_convtasnet.yml` training process was already using that GPU. The orphan EXP-002 rank on GPU 7 was stopped, and the next restart uses single GPU `[7]` to avoid DDP rank placement on the busy GPU.
+- Fourth formal attempt ran on GPU 7 through epoch 1 and part of epoch 2 before manual interrupt. Validation loss worsened from `1.45061` at epoch 0 to `2.43684` at epoch 1. This run used randomly initialized reliability-gate fusion while loading the rest of the model from the baseline checkpoint, so it is treated as a failed partial run rather than a completed result.
+- Next restart uses conservative concat-to-gate warm-start migration and lower lr `0.0001`, with outputs separated under `Track2-AVConvTasNet-ReliabilityGate-ConservativeInit`.
 
 No result yet. Do not mark completed until the formal run, artifacts, and metrics are verified.

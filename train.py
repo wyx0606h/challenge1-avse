@@ -88,6 +88,45 @@ def load_model_weights(model, ckpt_path):
     else:
         model_sd = state
 
+    # EXP-002 migration: the baseline checkpoint stores direct concat fusion as
+    # ``av_model.concat.conv1d``.  The reliability-gated fusion keeps the same
+    # module slot but splits that projection into audio/video projections plus a
+    # gate.  Seed the new module close to the old concat behavior instead of
+    # leaving the fusion path random.
+    old_w = model_sd.get("av_model.concat.conv1d.weight")
+    old_b = model_sd.get("av_model.concat.conv1d.bias")
+    audio_key = "av_model.concat.audio_proj.weight"
+    video_key = "av_model.concat.video_proj.weight"
+    out_key = "av_model.concat.out_proj.weight"
+    if old_w is not None and old_b is not None and audio_key in model.state_dict():
+        target_sd = model.state_dict()
+        audio_channels = target_sd[audio_key].shape[1]
+        out_channels = target_sd[audio_key].shape[0]
+        if old_w.shape[1] >= audio_channels and old_w.shape[0] == out_channels:
+            model_sd[audio_key] = old_w[:, :audio_channels, :].clone()
+            model_sd["av_model.concat.audio_proj.bias"] = old_b.clone()
+            model_sd[video_key] = old_w[:, audio_channels:, :].clone()
+            model_sd["av_model.concat.video_proj.bias"] = torch.zeros_like(
+                target_sd["av_model.concat.video_proj.bias"]
+            )
+
+            identity = torch.zeros_like(target_sd[out_key])
+            diag = min(identity.shape[0], identity.shape[1])
+            identity[torch.arange(diag), torch.arange(diag), 0] = 1.0
+            model_sd[out_key] = identity
+            model_sd["av_model.concat.out_proj.bias"] = torch.zeros_like(
+                target_sd["av_model.concat.out_proj.bias"]
+            )
+
+            gate_out_weight = "av_model.concat.gate.2.weight"
+            gate_out_bias = "av_model.concat.gate.2.bias"
+            model_sd[gate_out_weight] = torch.zeros_like(target_sd[gate_out_weight])
+            model_sd[gate_out_bias] = torch.full_like(target_sd[gate_out_bias], 6.0)
+            print_only(
+                "Warm-start: migrated baseline concat fusion into reliability "
+                "gate with near-identity visual gate."
+            )
+
     missing, unexpected = model.load_state_dict(model_sd, strict=False)
     print_only(f"Warm-start: loaded model weights from {ckpt_path}")
     if missing:
