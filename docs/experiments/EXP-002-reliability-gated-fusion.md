@@ -36,12 +36,15 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 ## Configuration
 
 - **Configuration file:** `configs/track2_av_convtasnet_reliability_gate.yml`
-- **Configuration snapshot/hash:** TODO
+- **Configuration snapshot/hash:** `sha256:535e1d63b8679eb937510215a247b9dd599663affce95a001f287bc33aaf7773`
 - **Random seed:** TODO
 - **Batch size:** 8
 - **Learning rate/scheduler:** Adam lr 0.001, ReduceLROnPlateau
 - **Epochs or stopping rule:** 500 epochs with early stopping patience 20
 - **Other changed parameters:** `fusion_type: reliability_gate`, `fusion_gate_hidden: 128`
+- **Warm-start checkpoint:** `/home/avse/experiments/track2_chineselips_finetune_degrade0_lr_sweep/roundtrip/official_serialized.pth`
+- **Warm-start checksum:** `sha256:bc0980c00646c6fab34d0ee10a9eda54af772ea3a2e94b19150cd4b230e03576`
+- **Warm-start policy:** load matching official Track 2 baseline weights with `strict=False`; the new reliability gate is randomly initialized and the old concat projection is ignored. The frozen video encoder weights come from the checkpoint, so `videonet_config.pretrain` is `null`.
 
 ## Data
 
@@ -74,15 +77,43 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 
 ```bash
 /home/avse/avse_gpu_venv/bin/python -m compileall look2hear/models/av_convtasnet.py
-# TODO: instantiate model after environment and video pretrain path are confirmed
+/home/avse/avse_gpu_venv/bin/python - <<'PY'
+import torch, yaml
+import look2hear.models
+
+conf = yaml.safe_load(open("configs/track2_av_convtasnet_reliability_gate.yml"))
+model = getattr(look2hear.models, conf["audionet"]["audionet_name"])(
+    sample_rate=conf["datamodule"]["data_config"]["sample_rate"],
+    video_relu_type=conf["videonet"]["videonet_config"].get("relu_type", "prelu"),
+    video_pretrain=None,
+    **conf["audionet"]["audionet_config"],
+)
+ckpt = "/home/avse/experiments/track2_chineselips_finetune_degrade0_lr_sweep/roundtrip/official_serialized.pth"
+state = torch.load(ckpt, map_location="cpu", weights_only=False)
+missing, unexpected = model.load_state_dict(state["state_dict"], strict=False)
+print("missing", missing)
+print("unexpected", unexpected)
+PY
 ```
 
 ### Formal run
 
 ```bash
-/home/avse/avse_gpu_venv/bin/python train.py --conf_dir configs/track2_av_convtasnet_reliability_gate.yml
+/home/avse/avse_gpu_venv/bin/python train.py \
+  --conf_dir configs/track2_av_convtasnet_reliability_gate.yml \
+  --warm_start /home/avse/experiments/track2_chineselips_finetune_degrade0_lr_sweep/roundtrip/official_serialized.pth
 ```
 
 ## Results
+
+### Sanity check
+
+Passed on 2026-07-07 before formal training:
+
+- Model file compiled successfully.
+- Dataset setup found 15,115 train mixtures, 1,954 validation target items, and 3,878 test target items.
+- Warm-start from `official_serialized.pth` produced the expected compatibility report: 11 missing reliability-gate parameters and 2 unexpected old concat parameters.
+- Frozen video encoder check: 0 trainable video-encoder tensors.
+- One GPU forward pass on a batch shaped `(1, 32000)` audio and `(1, 50, 88, 88)` mouth frames produced finite output shaped `(1, 32000)`.
 
 No result yet. Do not mark completed until the formal run, artifacts, and metrics are verified.

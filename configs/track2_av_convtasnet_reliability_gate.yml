@@ -33,7 +33,7 @@ videonet:
   videonet_name: ResNetVideoModel
   videonet_config:
     relu_type: "prelu"
-    pretrain: "video_pretrain/frcnn_128_512.backbone.pth.tar"
+    pretrain: null  # Loaded from --warm_start checkpoint; no external lip-backbone file needed.
 
 # Loss config
 loss:
