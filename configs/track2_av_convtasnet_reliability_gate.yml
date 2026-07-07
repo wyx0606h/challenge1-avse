@@ -79,9 +79,9 @@ scheduler:
 datamodule:
   data_name: Track2DataModule
   data_config:
-    train_dir: DataPreProcess/vox2/tr
-    valid_dir: DataPreProcess/vox2/cv
-    test_dir: DataPreProcess/vox2/tt
+    train_dir: /home/avse/processed_Chineselips/tr
+    valid_dir: /home/avse/processed_Chineselips/cv
+    test_dir: /home/avse/processed_Chineselips/tt
     n_src: 1
     sample_rate: 16000
     segment: 2.0

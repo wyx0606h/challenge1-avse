@@ -26,11 +26,10 @@ Training data:
 - Expected per-split manifests: `mix.json`, `s1.json`, and `s2.json`
 - Dataset build and validation notes: `/home/avse/data_pipeline`
 
-The current EXP-002 and EXP-003 configs still refer to
-`DataPreProcess/vox2/{tr,cv,tt}`. Before running those configs, either update
-the dedicated experiment configs to point at `/home/avse/processed_Chineselips`
-or create a local, untracked compatibility link/tree. Record the chosen method
-in the experiment report.
+The dedicated EXP-002 and EXP-003 configs point directly at
+`/home/avse/processed_Chineselips/{tr,cv,tt}`. If another experiment uses a
+different data root, update only that experiment's copied config and record the
+deviation in its report.
 
 Challenge Track 2 dev evaluation data:
 

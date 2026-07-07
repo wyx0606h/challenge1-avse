@@ -56,7 +56,7 @@ Replace direct audio-video concatenation with `CrossAttentionFusion` in `look2he
 - **Train split:** `/home/avse/processed_Chineselips/tr` TODO verify counts/checksums
 - **Validation split:** `/home/avse/processed_Chineselips/cv` TODO verify counts/checksums
 - **Test split:** `/home/avse/processed_Chineselips/tt` TODO verify counts/checksums
-- **Config path compatibility:** current config points to `DataPreProcess/vox2/{tr,cv,tt}`; before running, either update the dedicated config or create an untracked compatibility link/tree and record the choice.
+- **Config path compatibility:** dedicated config now points directly to `/home/avse/processed_Chineselips/{tr,cv,tt}`.
 - **Speaker-disjoint policy:** TODO / pending confirmation
 - **Augmentation/degradation policy:** Track 2 online visual degradation, TODO verify exact run settings
 
