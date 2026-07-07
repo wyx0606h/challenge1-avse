@@ -119,5 +119,6 @@ Passed on 2026-07-07 before formal training:
 - Environment check passed with 16 checks, 0 warnings, and 0 failures.
 - Track 2 dev wrapper path resolved and official manifest counts matched, but the setup checker reported missing `s1.pkl/s2.pkl` files for 483 dev clips; this does not block training on `/home/avse/processed_Chineselips`, but it must be accounted for before formal dev evaluation.
 - First formal attempt failed at epoch 0, batch 585/944 with PyTorch DataLoader worker error `Trying to resize storage that is not resizable`. Added an explicit Track 2 collate function that copies numpy mouth arrays into contiguous tensors before stacking, and reduced EXP-002 `num_workers` to 0 for the restart.
+- Second formal attempt failed at epoch 0, batch 559/944 because a batch mixed 50-frame and 45-frame mouth tensors. Added Track 2 mouth-length normalization: sequences longer than the configured video length are truncated and shorter sequences are padded by repeating the final frame. Verified 11 train batches at batch size 8 all produced mouth tensors shaped `(8, 50, 88, 88)`.
 
 No result yet. Do not mark completed until the formal run, artifacts, and metrics are verified.

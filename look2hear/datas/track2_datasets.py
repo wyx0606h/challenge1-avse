@@ -74,6 +74,19 @@ def _track2_collate(batch):
     )
     return mixtures, sources, mouths, list(filenames)
 
+
+def _fix_mouth_length(mouth, target_len):
+    """Return mouth frames with exactly ``target_len`` frames."""
+    if target_len is None:
+        return mouth.astype(np.float32)
+    if mouth.shape[0] >= target_len:
+        return mouth[:target_len].astype(np.float32)
+    if mouth.shape[0] == 0:
+        pad_shape = (target_len,) + mouth.shape[1:]
+        return np.zeros(pad_shape, dtype=np.float32)
+    pad = np.repeat(mouth[-1:, ...], target_len - mouth.shape[0], axis=0)
+    return np.concatenate([mouth, pad], axis=0).astype(np.float32)
+
 def normalize_tensor_wav(wav_tensor, eps=1e-8, std=None):
     """Mean/variance normalize a waveform tensor along the last axis."""
     mean = wav_tensor.mean(-1, keepdim=True)
@@ -321,9 +334,7 @@ class Track2DynamicDataset(Dataset):
             )
         gray = _rgb_to_gray_resize(frames, self.face_size)
         mouth = self.lipreading_preprocessing_func(gray)
-        if self.fps_len is not None:
-            mouth = mouth[: self.fps_len]
-        return mouth.astype(np.float32)
+        return _fix_mouth_length(mouth, self.fps_len)
 
     def __getitem__(self, idx: int):
         while True:
@@ -439,9 +450,7 @@ class Track2StaticDataset(Dataset):
             )
         gray = _rgb_to_gray_resize(frames, self.face_size)
         mouth = self.lipreading_preprocessing_func(gray)
-        if self.fps_len is not None:
-            mouth = mouth[: self.fps_len]
-        return mouth.astype(np.float32)
+        return _fix_mouth_length(mouth, self.fps_len)
 
     def __getitem__(self, idx: int):
         mix_path, src_path, mouth_path = self.items[idx]
@@ -593,6 +602,5 @@ class Track2DataModule(object):
     @property
     def make_sets(self):
         return self.data_train, self.data_val, self.data_test
-
 
 
