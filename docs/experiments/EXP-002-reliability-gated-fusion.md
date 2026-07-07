@@ -36,7 +36,7 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 ## Configuration
 
 - **Configuration file:** `configs/track2_av_convtasnet_reliability_gate.yml`
-- **Configuration snapshot/hash:** `sha256:535e1d63b8679eb937510215a247b9dd599663affce95a001f287bc33aaf7773`
+- **Configuration snapshot/hash:** `sha256:6457a7aabeb51714fb2e15a8795a6e6fe4ff891933463a83c8baa47602e2defb`
 - **Random seed:** TODO
 - **Batch size:** 8
 - **Learning rate/scheduler:** Adam lr 0.001, ReduceLROnPlateau
@@ -68,7 +68,7 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 - **Training Python:** `/home/avse/avse_gpu_venv/bin/python`
 - **Evaluation Python:** `/home/avse/avse_eval_py311/bin/python`
 - **Path conventions:** `docs/experiment-conventions.md`
-- **GPU allocation:** TODO / pending confirmation
+- **GPU allocation:** `[3, 7]` for the first formal run attempt, selected because GPUs 4, 5, and 6 were heavily occupied before launch.
 - **CUDA/PyTorch inventory:** TODO / pending confirmation
 
 ## Commands
@@ -115,5 +115,7 @@ Passed on 2026-07-07 before formal training:
 - Warm-start from `official_serialized.pth` produced the expected compatibility report: 11 missing reliability-gate parameters and 2 unexpected old concat parameters.
 - Frozen video encoder check: 0 trainable video-encoder tensors.
 - One GPU forward pass on a batch shaped `(1, 32000)` audio and `(1, 50, 88, 88)` mouth frames produced finite output shaped `(1, 32000)`.
+- Environment check passed with 16 checks, 0 warnings, and 0 failures.
+- Track 2 dev wrapper path resolved and official manifest counts matched, but the setup checker reported missing `s1.pkl/s2.pkl` files for 483 dev clips; this does not block training on `/home/avse/processed_Chineselips`, but it must be accounted for before formal dev evaluation.
 
 No result yet. Do not mark completed until the formal run, artifacts, and metrics are verified.
