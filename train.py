@@ -18,7 +18,10 @@ from look2hear.utils import print_only
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from swanlab.integration.pytorch_lightning import SwanLabLogger
+try:
+    from swanlab.integration.pytorch_lightning import SwanLabLogger
+except ModuleNotFoundError:
+    SwanLabLogger = None
 from pytorch_lightning.strategies.ddp import DDPStrategy
 
 warnings.filterwarnings("ignore")
@@ -215,7 +218,7 @@ def main(config, warm_start=None):
         and int(os.environ.get("NODE_RANK", 0)) == 0
         and int(os.environ.get("GLOBAL_RANK", 0)) == 0
     )
-    if is_rank_zero:
+    if is_rank_zero and SwanLabLogger is not None:
         log_cfg = config.get("logger", {}) or {}
         log_dir = os.path.join(exp_dir, "logs")
         os.makedirs(log_dir, exist_ok=True)
@@ -225,6 +228,8 @@ def main(config, warm_start=None):
             experiment_name=log_cfg.get("experiment_name", config["exp"]["exp_name"]),
             save_dir=log_dir,
         )
+    elif is_rank_zero:
+        print_only("SwanLabLogger unavailable; continuing without SwanLab logging.")
 
     # Define trainer
     trainer = pl.Trainer(
