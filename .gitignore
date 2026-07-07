@@ -79,6 +79,8 @@ preprocess/
 .cache/
 DataPreProcess/vox2/
 Experiments/
+!docs/experiments/
+!docs/experiments/*.md
 enhanced_out/
 enhanced_out*/
 eval_results/

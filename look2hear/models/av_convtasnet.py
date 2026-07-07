@@ -389,7 +389,7 @@ class Video_Sequential(nn.Module):
 
 class Concat(nn.Module):
     """
-    Audio and Visual Concatenated Part
+    Baseline audio-visual fusion by direct concatenation.
 
     audio_channels: Audio Part Channels
     video_channels: Video Part Channels
@@ -421,6 +421,162 @@ class Concat(nn.Module):
         return self.conv1d(y)
 
 
+class ReliabilityGatedFusion(nn.Module):
+    """
+    Reliability-aware fusion for Track 2 visual degradation experiments.
+
+    The baseline treats every visual frame as equally useful after temporal
+    alignment. Track 2 breaks that assumption: lips may be occluded, frozen,
+    low-resolution, dropped, or desynchronized. This module first projects
+    audio/video streams to a common channel width, then predicts a per-time,
+    per-channel gate from their joint evidence. The gate controls how much
+    visual information is injected into the audio stream.
+
+    A small and inspectable gate is intentional here. It keeps the first
+    experiment close to AV-ConvTasNet while making the learned visual reliance
+    easy to trace later.
+    """
+
+    def __init__(self, audio_channels, video_channels, out_channels,
+                 gate_hidden=128):
+        super(ReliabilityGatedFusion, self).__init__()
+        self.audio_channels = audio_channels
+        self.video_channels = video_channels
+        self.out_channels = out_channels
+
+        gate_hidden = int(gate_hidden)
+        if gate_hidden <= 0:
+            raise ValueError(f"gate_hidden must be positive, got {gate_hidden}")
+
+        self.audio_proj = nn.Conv1d(audio_channels, out_channels, 1)
+        self.video_proj = nn.Conv1d(video_channels, out_channels, 1)
+
+        # The absolute difference is a cheap mismatch cue. Large differences can
+        # indicate unreliable visual guidance, AV desync, or irrelevant motion.
+        self.gate = nn.Sequential(
+            nn.Conv1d(out_channels * 3, gate_hidden, 1),
+            nn.PReLU(),
+            nn.Conv1d(gate_hidden, out_channels, 1),
+            nn.Sigmoid(),
+        )
+        self.out_proj = nn.Conv1d(out_channels, out_channels, 1)
+
+    def forward(self, a, v):
+        """
+        a: audio features, N x A x Ta
+        v: video features, N x V x Tv
+        """
+        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
+            raise RuntimeError("Dimention mismatch for audio/video features, "
+                               "{:d}/{:d} vs {:d}/{:d}".format(
+                                   a.size(1), v.size(1), self.audio_channels,
+                                   self.video_channels))
+
+        v = torch.nn.functional.interpolate(v, size=a.size(-1))
+        a_proj = self.audio_proj(a)
+        v_proj = self.video_proj(v)
+
+        gate_in = torch.cat([a_proj, v_proj, torch.abs(a_proj - v_proj)], dim=1)
+        visual_gate = self.gate(gate_in)
+
+        # Residual audio path protects the model when visual evidence is poor.
+        fused = a_proj + visual_gate * v_proj
+        return self.out_proj(fused)
+
+
+class CrossAttentionFusion(nn.Module):
+    """
+    Cross-attention fusion: audio queries aligned visual evidence.
+
+    Direct concatenation asks the following separator blocks to discover the
+    audio-visual relationship by themselves. Cross attention makes that
+    relationship explicit: each audio time step forms a query and attends over
+    the time-aligned visual sequence. This is a compact AV-ConvTasNet-friendly
+    version of recent AVSS/AVTSE attention fusion ideas.
+    """
+
+    def __init__(self, audio_channels, video_channels, out_channels,
+                 num_heads=4, dropout=0.0):
+        super(CrossAttentionFusion, self).__init__()
+        self.audio_channels = audio_channels
+        self.video_channels = video_channels
+        self.out_channels = out_channels
+
+        num_heads = int(num_heads)
+        if num_heads <= 0:
+            raise ValueError(f"num_heads must be positive, got {num_heads}")
+        if out_channels % num_heads != 0:
+            raise ValueError(
+                f"out_channels ({out_channels}) must be divisible by "
+                f"num_heads ({num_heads})"
+            )
+
+        self.audio_proj = nn.Conv1d(audio_channels, out_channels, 1)
+        self.video_proj = nn.Conv1d(video_channels, out_channels, 1)
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=out_channels,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.norm = nn.LayerNorm(out_channels)
+        self.out_proj = nn.Conv1d(out_channels, out_channels, 1)
+
+    def forward(self, a, v):
+        """
+        a: audio features, N x A x Ta
+        v: video features, N x V x Tv
+        """
+        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
+            raise RuntimeError("Dimention mismatch for audio/video features, "
+                               "{:d}/{:d} vs {:d}/{:d}".format(
+                                   a.size(1), v.size(1), self.audio_channels,
+                                   self.video_channels))
+
+        v = torch.nn.functional.interpolate(v, size=a.size(-1))
+        a_proj = self.audio_proj(a)
+        v_proj = self.video_proj(v)
+
+        # MultiheadAttention expects [batch, time, channel] when batch_first=True.
+        query = a_proj.transpose(1, 2)
+        key_value = v_proj.transpose(1, 2)
+        attended, _ = self.cross_attn(
+            query=query,
+            key=key_value,
+            value=key_value,
+            need_weights=False,
+        )
+        fused = self.norm(query + attended)
+        return self.out_proj(fused.transpose(1, 2))
+
+
+def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels,
+                       gate_hidden=128, num_heads=4, dropout=0.0):
+    """Create the selected audio-visual fusion module."""
+    fusion_type = (fusion_type or "concat").lower()
+    if fusion_type == "concat":
+        return Concat(audio_channels, video_channels, out_channels)
+    if fusion_type == "reliability_gate":
+        return ReliabilityGatedFusion(
+            audio_channels,
+            video_channels,
+            out_channels,
+            gate_hidden=gate_hidden,
+        )
+    if fusion_type == "cross_attention":
+        return CrossAttentionFusion(
+            audio_channels,
+            video_channels,
+            out_channels,
+            num_heads=num_heads,
+            dropout=dropout,
+        )
+    raise ValueError(
+        "Unsupported fusion_type {!r}. Expected one of: concat, "
+        "reliability_gate, cross_attention.".format(fusion_type)
+    )
+
+
 class AV_model(nn.Module):
     """
     Audio and Visual Speech Separation
@@ -446,6 +602,7 @@ class AV_model(nn.Module):
         audio_index Number repeats of audio part
         norm    Normalization type
         causal  Two choice(causal or noncausal)
+        fusion_type Direct concat, reliability gate, or cross attention
     """
 
     def __init__(
@@ -470,7 +627,11 @@ class AV_model(nn.Module):
             skip_con=False,
             audio_index=2,
             norm="gln",
-            causal=False):
+            causal=False,
+            fusion_type="concat",
+            fusion_gate_hidden=128,
+            fusion_heads=4,
+            fusion_dropout=0.0):
         super(AV_model, self).__init__()
         self.video = Video_Sequential(E, V, K, skip_con=skip_con, repeat=D)
         # n x S > n x N x T
@@ -493,20 +654,28 @@ class AV_model(nn.Module):
             norm=norm,
             causal=causal,
             skip_con=skip_con)
-        self.concat = Concat(B, V, F)
+        self.concat = make_fusion_module(
+            fusion_type,
+            B,
+            V,
+            F,
+            gate_hidden=fusion_gate_hidden,
+            num_heads=fusion_heads,
+            dropout=fusion_dropout,
+        )
         self.feats_conv = Audio_Sequential(
             R - audio_index,
             X,
-            in_channels=B,
+            in_channels=F,
             out_channels=H,
-            b_conv=B,
+            b_conv=F,
             sc_conv=Sc,
             kernel_size=P,
             norm=norm,
             causal=causal,
             skip_con=skip_con)
         # mask 1x1 conv
-        # n x B x T => n x N x T
+        # n x F x T => n x N x T
         self.mask = Conv1D(F, N, 1)
         # n x N x T => n x 1 x To
         self.decoder = Decoder(N, 1, kernel_size=L, stride=L // 2, bias=True)
@@ -549,7 +718,7 @@ class AV_model(nn.Module):
         # audio/video fusion
         y = self.concat(a, v)
 
-        # n x (B+V) x T
+        # fused audio-visual features: n x F x T
         y = self.feats_conv(y)
         # n x N x T
         m = torch.nn.functional.relu(self.mask(y))
@@ -599,6 +768,10 @@ class AV_ConvTasNet(BaseModel):
         D=5,
         # Fusion parameters
         F=256,
+        fusion_type="concat",
+        fusion_gate_hidden=128,
+        fusion_heads=4,
+        fusion_dropout=0.0,
         # Other parameters
         sample_rate=16000,
         skip_con=False,
@@ -619,6 +792,10 @@ class AV_ConvTasNet(BaseModel):
         self._model_args = dict(
             N=N, L=L, B=B, Sc=Sc, H=H, P=P, X=X, R=R,
             E=E, V=V, K=K, D=D, F=F,
+            fusion_type=fusion_type,
+            fusion_gate_hidden=fusion_gate_hidden,
+            fusion_heads=fusion_heads,
+            fusion_dropout=fusion_dropout,
             sample_rate=sample_rate,
             skip_con=skip_con,
             audio_index=audio_index,
@@ -654,6 +831,10 @@ class AV_ConvTasNet(BaseModel):
         self.av_model = AV_model(
             N=N, L=L, B=B, Sc=Sc, H=H, P=P, X=X, R=R,
             E=E, V=V, K=K, D=D, F=F,
+            fusion_type=fusion_type,
+            fusion_gate_hidden=fusion_gate_hidden,
+            fusion_heads=fusion_heads,
+            fusion_dropout=fusion_dropout,
             skip_con=skip_con,
             audio_index=audio_index,
             norm=norm,
