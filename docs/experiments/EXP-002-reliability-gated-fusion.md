@@ -36,7 +36,7 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 ## Configuration
 
 - **Configuration file:** `configs/track2_av_convtasnet_reliability_gate.yml`
-- **Configuration snapshot/hash:** `sha256:3310dca5d83d13bc3d508402e232556840972653b7e379150f07b5ea8ed72b14`
+- **Configuration snapshot/hash:** `sha256:21ca1c7cb506cb483849c47d188204606d7205eaff842876246d158f9694f063`
 - **Random seed:** TODO
 - **Batch size:** 8
 - **DataLoader workers:** 0 for the restart after a worker-side collate failure; this favors stability over throughput.
@@ -69,7 +69,7 @@ Replace direct audio-video concatenation with `ReliabilityGatedFusion` in `look2
 - **Training Python:** `/home/avse/avse_gpu_venv/bin/python`
 - **Evaluation Python:** `/home/avse/avse_eval_py311/bin/python`
 - **Path conventions:** `docs/experiment-conventions.md`
-- **GPU allocation:** `[3, 7]` for the first formal run attempt, selected because GPUs 4, 5, and 6 were heavily occupied before launch.
+- **GPU allocation:** `[7]` for the next formal run attempt. Earlier `[3, 7]` DDP attempts conflicted with another active training process on GPU 3 and left an orphan GPU 7 rank after OOM.
 - **CUDA/PyTorch inventory:** TODO / pending confirmation
 
 ## Commands
@@ -120,5 +120,6 @@ Passed on 2026-07-07 before formal training:
 - Track 2 dev wrapper path resolved and official manifest counts matched, but the setup checker reported missing `s1.pkl/s2.pkl` files for 483 dev clips; this does not block training on `/home/avse/processed_Chineselips`, but it must be accounted for before formal dev evaluation.
 - First formal attempt failed at epoch 0, batch 585/944 with PyTorch DataLoader worker error `Trying to resize storage that is not resizable`. Added an explicit Track 2 collate function that copies numpy mouth arrays into contiguous tensors before stacking, and reduced EXP-002 `num_workers` to 0 for the restart.
 - Second formal attempt failed at epoch 0, batch 559/944 because a batch mixed 50-frame and 45-frame mouth tensors. Added Track 2 mouth-length normalization: sequences longer than the configured video length are truncated and shorter sequences are padded by repeating the final frame. Verified 11 train batches at batch size 8 all produced mouth tensors shaped `(8, 50, 88, 88)`.
+- Third formal attempt failed immediately with CUDA OOM on GPU 3 because another active `track1_av_convtasnet.yml` training process was already using that GPU. The orphan EXP-002 rank on GPU 7 was stopped, and the next restart uses single GPU `[7]` to avoid DDP rank placement on the busy GPU.
 
 No result yet. Do not mark completed until the formal run, artifacts, and metrics are verified.
