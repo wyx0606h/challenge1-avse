@@ -24,6 +24,7 @@ artifacts have been checked, and complete metrics have been recorded.
 | EXP-001 | Official Track 2 baseline reproduction | Planned | `exp/baseline-reproduction` | TODO | `baseline/track2-source-v1` | No team result yet | TODO |
 | EXP-002 | Reliability-gated visual fusion | Planned | `exp/experiment-cross` | TODO | `baseline/track2-source-v1` | No result yet | `docs/experiments/EXP-002-reliability-gated-fusion.md` |
 | EXP-003 | Cross-attention visual fusion | Planned | `exp/experiment-cross` | TODO | `baseline/track2-source-v1` | No result yet | `docs/experiments/EXP-003-cross-attention-fusion.md` |
+| EXP-004 | Safe reliability-gated visual fusion | Planned | `exp/safe-reliability-gate` | TODO | `EXP-002` / `exp/experiment-cross` | No result yet | `docs/experiments/EXP-004-safe-reliability-gated-fusion.md` |
 
 `baseline/track2-source-v1` freezes the source code and collaboration workflow.
 It is not an experiment result and does not claim reproduction of the official

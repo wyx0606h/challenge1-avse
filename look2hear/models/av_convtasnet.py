@@ -484,6 +484,77 @@ class ReliabilityGatedFusion(nn.Module):
         return self.out_proj(fused)
 
 
+class SafeReliabilityGatedFusion(nn.Module):
+    """
+    Conservative reliability gate for visually degraded Track 2 samples.
+
+    This v2 gate is designed after the first gate showed regressions. Instead
+    of adding a gated visual projection directly into the audio stream, it
+    interpolates between two explicit candidates:
+
+        gate = 0 -> audio_safe
+        gate = 1 -> av_candidate
+
+    The gate is initialized with a negative bias, so training starts close to
+    the safer audio path and only opens the visual route when the loss supports
+    it. The default scalar gate predicts one reliability value per time step,
+    which is easier to learn and inspect than a full per-channel gate.
+    """
+
+    def __init__(self, audio_channels, video_channels, out_channels,
+                 gate_hidden=128, gate_init_bias=-2.0, scalar_gate=True):
+        super(SafeReliabilityGatedFusion, self).__init__()
+        self.audio_channels = audio_channels
+        self.video_channels = video_channels
+        self.out_channels = out_channels
+        self.scalar_gate = bool(scalar_gate)
+
+        gate_hidden = int(gate_hidden)
+        if gate_hidden <= 0:
+            raise ValueError(f"gate_hidden must be positive, got {gate_hidden}")
+
+        gate_channels = 1 if self.scalar_gate else out_channels
+        self.audio_safe = nn.Conv1d(audio_channels, out_channels, 1)
+        self.av_candidate = nn.Conv1d(audio_channels + video_channels,
+                                      out_channels, 1)
+        self.gate_net = nn.Sequential(
+            nn.Conv1d(out_channels * 3, gate_hidden, 1),
+            nn.PReLU(),
+            nn.Conv1d(gate_hidden, gate_channels, 1),
+            nn.Sigmoid(),
+        )
+
+        # Start conservatively: sigmoid(-2) ~= 0.12, so early training stays
+        # close to audio_safe instead of trusting noisy visual features blindly.
+        final_gate_conv = self.gate_net[-2]
+        nn.init.zeros_(final_gate_conv.weight)
+        nn.init.constant_(final_gate_conv.bias, float(gate_init_bias))
+
+    def forward(self, a, v):
+        """
+        a: audio features, N x A x Ta
+        v: video features, N x V x Tv
+        """
+        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
+            raise RuntimeError("Dimention mismatch for audio/video features, "
+                               "{:d}/{:d} vs {:d}/{:d}".format(
+                                   a.size(1), v.size(1), self.audio_channels,
+                                   self.video_channels))
+
+        v = torch.nn.functional.interpolate(v, size=a.size(-1))
+        audio_safe = self.audio_safe(a)
+        av_candidate = self.av_candidate(torch.cat([a, v], dim=1))
+
+        gate_in = torch.cat([
+            audio_safe,
+            av_candidate,
+            torch.abs(av_candidate - audio_safe),
+        ], dim=1)
+        visual_gate = self.gate_net(gate_in)
+
+        return audio_safe + visual_gate * (av_candidate - audio_safe)
+
+
 class CrossAttentionFusion(nn.Module):
     """
     Cross-attention fusion: audio queries aligned visual evidence.
@@ -551,7 +622,8 @@ class CrossAttentionFusion(nn.Module):
 
 
 def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels,
-                       gate_hidden=128, num_heads=4, dropout=0.0):
+                       gate_hidden=128, gate_init_bias=-2.0, scalar_gate=True,
+                       num_heads=4, dropout=0.0):
     """Create the selected audio-visual fusion module."""
     fusion_type = (fusion_type or "concat").lower()
     if fusion_type == "concat":
@@ -563,6 +635,15 @@ def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels
             out_channels,
             gate_hidden=gate_hidden,
         )
+    if fusion_type == "safe_reliability_gate":
+        return SafeReliabilityGatedFusion(
+            audio_channels,
+            video_channels,
+            out_channels,
+            gate_hidden=gate_hidden,
+            gate_init_bias=gate_init_bias,
+            scalar_gate=scalar_gate,
+        )
     if fusion_type == "cross_attention":
         return CrossAttentionFusion(
             audio_channels,
@@ -573,7 +654,7 @@ def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels
         )
     raise ValueError(
         "Unsupported fusion_type {!r}. Expected one of: concat, "
-        "reliability_gate, cross_attention.".format(fusion_type)
+        "reliability_gate, safe_reliability_gate, cross_attention.".format(fusion_type)
     )
 
 
@@ -630,6 +711,8 @@ class AV_model(nn.Module):
             causal=False,
             fusion_type="concat",
             fusion_gate_hidden=128,
+            fusion_gate_init_bias=-2.0,
+            fusion_gate_scalar=True,
             fusion_heads=4,
             fusion_dropout=0.0):
         super(AV_model, self).__init__()
@@ -660,6 +743,8 @@ class AV_model(nn.Module):
             V,
             F,
             gate_hidden=fusion_gate_hidden,
+            gate_init_bias=fusion_gate_init_bias,
+            scalar_gate=fusion_gate_scalar,
             num_heads=fusion_heads,
             dropout=fusion_dropout,
         )
@@ -770,6 +855,8 @@ class AV_ConvTasNet(BaseModel):
         F=256,
         fusion_type="concat",
         fusion_gate_hidden=128,
+        fusion_gate_init_bias=-2.0,
+        fusion_gate_scalar=True,
         fusion_heads=4,
         fusion_dropout=0.0,
         # Other parameters
@@ -794,6 +881,8 @@ class AV_ConvTasNet(BaseModel):
             E=E, V=V, K=K, D=D, F=F,
             fusion_type=fusion_type,
             fusion_gate_hidden=fusion_gate_hidden,
+            fusion_gate_init_bias=fusion_gate_init_bias,
+            fusion_gate_scalar=fusion_gate_scalar,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
             sample_rate=sample_rate,
@@ -833,6 +922,8 @@ class AV_ConvTasNet(BaseModel):
             E=E, V=V, K=K, D=D, F=F,
             fusion_type=fusion_type,
             fusion_gate_hidden=fusion_gate_hidden,
+            fusion_gate_init_bias=fusion_gate_init_bias,
+            fusion_gate_scalar=fusion_gate_scalar,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
             skip_con=skip_con,
