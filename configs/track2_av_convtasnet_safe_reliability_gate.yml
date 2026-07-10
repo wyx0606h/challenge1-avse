@@ -21,10 +21,10 @@ audionet:
     K: 3                # Video kernel size
     D: 5                # Video repeats
     F: 256              # Fusion channels
-    fusion_type: "safe_reliability_gate"  # Gate v2: interpolate audio-safe and AV-fused candidates
+    fusion_type: "safe_reliability_gate"  # Gate v2: audio path + gated visual residual
     fusion_gate_hidden: 128               # Hidden width of the reliability gate
     fusion_gate_init_bias: -2.0           # sigmoid(-2) ~= 0.12, conservative visual use at init
-    fusion_gate_scalar: true              # One visual reliability value per time step
+    fusion_gate_scalar: true              # One inspectable visual-reliability value per time step
     R: 4                # Number of all repeats
     skip_con: false
     audio_index: 1
@@ -97,9 +97,9 @@ datamodule:
 
 # Experiment config
 exp:
-  exp_name: Track2-AVConvTasNet-SafeReliabilityGate
+  exp_name: Track2-AVConvTasNet-SafeReliabilityGate-V2
 
 # SwanLab logger config (instantiated on rank 0 only)
 logger:
   project: Real-Wold-AVSE
-  experiment_name: Track2-AVConvTasNet-SafeReliabilityGate
+  experiment_name: Track2-AVConvTasNet-SafeReliabilityGate-V2

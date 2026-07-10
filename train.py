@@ -61,6 +61,61 @@ def find_latest_checkpoint(exp_dir):
     return None
 
 
+def adapt_baseline_concat_for_safe_gate(model, model_sd):
+    """Reuse a baseline concat kernel when warm-starting the safe gate.
+
+    Baseline fusion computes one 1x1 convolution over ``cat([audio, video])``.
+    The safe gate uses separate audio/video projections so that it can scale
+    only the visual contribution. Splitting the baseline kernel along its input
+    channels preserves that fusion exactly when the gate is fully open.
+
+    The gate network itself has no baseline counterpart and remains at its
+    conservative initialization.
+    """
+    fusion = getattr(getattr(model, "av_model", None), "concat", None)
+    if fusion is None or not all(
+        hasattr(fusion, name) for name in ("audio_proj", "video_proj", "gate_net")
+    ):
+        return model_sd
+
+    old_weight_key = "av_model.concat.conv1d.weight"
+    old_bias_key = "av_model.concat.conv1d.bias"
+    audio_weight_key = "av_model.concat.audio_proj.weight"
+    audio_bias_key = "av_model.concat.audio_proj.bias"
+    video_weight_key = "av_model.concat.video_proj.weight"
+
+    # A safe-gate checkpoint already contains the new keys and needs no rewrite.
+    if old_weight_key not in model_sd or audio_weight_key in model_sd:
+        return model_sd
+
+    weight = model_sd[old_weight_key]
+    expected_inputs = fusion.audio_channels + fusion.video_channels
+    expected_shape = (fusion.out_channels, expected_inputs, 1)
+    if tuple(weight.shape) != expected_shape:
+        raise RuntimeError(
+            "Cannot adapt baseline fusion weight with shape {} to expected {}"
+            .format(tuple(weight.shape), expected_shape)
+        )
+
+    adapted = dict(model_sd)
+    adapted[audio_weight_key] = weight[:, :fusion.audio_channels, :].clone()
+    adapted[video_weight_key] = weight[:, fusion.audio_channels:, :].clone()
+    if old_bias_key in adapted:
+        adapted[audio_bias_key] = adapted[old_bias_key].clone()
+        del adapted[old_bias_key]
+    else:
+        adapted[audio_bias_key] = torch.zeros(
+            fusion.out_channels, dtype=weight.dtype, device=weight.device
+        )
+    del adapted[old_weight_key]
+
+    print_only(
+        "Warm-start: split baseline concat weights into safe-gate audio/video "
+        "projections; the new reliability gate keeps its configured initialization."
+    )
+    return adapted
+
+
 def load_model_weights(model, ckpt_path):
     """Load only model weights from a checkpoint (no optimizer/scheduler state).
 
@@ -85,6 +140,7 @@ def load_model_weights(model, ckpt_path):
     else:
         model_sd = state
 
+    model_sd = adapt_baseline_concat_for_safe_gate(model, model_sd)
     missing, unexpected = model.load_state_dict(model_sd, strict=False)
     print_only(f"Warm-start: loaded model weights from {ckpt_path}")
     if missing:

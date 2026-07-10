@@ -488,17 +488,18 @@ class SafeReliabilityGatedFusion(nn.Module):
     """
     Conservative reliability gate for visually degraded Track 2 samples.
 
-    This v2 gate is designed after the first gate showed regressions. Instead
-    of adding a gated visual projection directly into the audio stream, it
-    interpolates between two explicit candidates:
+    The gate scales only the visual residual; it never switches between two
+    different audio transforms:
 
-        gate = 0 -> audio_safe
-        gate = 1 -> av_candidate
+        fused = audio_projection + gate * visual_projection
 
     The gate is initialized with a negative bias, so training starts close to
-    the safer audio path and only opens the visual route when the loss supports
-    it. The default scalar gate predicts one reliability value per time step,
-    which is easier to learn and inspect than a full per-channel gate.
+    the audio projection and only opens the visual route when the loss supports
+    it. With gate=1, the two projections have exactly the same form as the
+    baseline concatenation Conv1d: the baseline kernel can be split into its
+    audio and video channel slices without changing its output. The default
+    scalar gate predicts one reliability value per time step, which is easier
+    to learn and inspect than a full per-channel gate.
     """
 
     def __init__(self, audio_channels, video_channels, out_channels,
@@ -514,9 +515,11 @@ class SafeReliabilityGatedFusion(nn.Module):
             raise ValueError(f"gate_hidden must be positive, got {gate_hidden}")
 
         gate_channels = 1 if self.scalar_gate else out_channels
-        self.audio_safe = nn.Conv1d(audio_channels, out_channels, 1)
-        self.av_candidate = nn.Conv1d(audio_channels + video_channels,
-                                      out_channels, 1)
+        # Bias belongs only to the audio projection. Therefore, when gate=1,
+        # audio_proj(a) + video_proj(v) is exactly representable by one baseline
+        # Conv1d(cat([a, v])) with the same single bias term.
+        self.audio_proj = nn.Conv1d(audio_channels, out_channels, 1, bias=True)
+        self.video_proj = nn.Conv1d(video_channels, out_channels, 1, bias=False)
         self.gate_net = nn.Sequential(
             nn.Conv1d(out_channels * 3, gate_hidden, 1),
             nn.PReLU(),
@@ -524,35 +527,43 @@ class SafeReliabilityGatedFusion(nn.Module):
             nn.Sigmoid(),
         )
 
-        # Start conservatively: sigmoid(-2) ~= 0.12, so early training stays
-        # close to audio_safe instead of trusting noisy visual features blindly.
+        # Start conservatively: sigmoid(-2) ~= 0.12, so early training attenuates
+        # the visual residual instead of trusting degraded frames immediately.
         final_gate_conv = self.gate_net[-2]
         nn.init.zeros_(final_gate_conv.weight)
         nn.init.constant_(final_gate_conv.bias, float(gate_init_bias))
+
+    def _forward_impl(self, a, v):
+        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
+            raise RuntimeError("Dimension mismatch for audio/video features, "
+                               "{:d}/{:d} vs {:d}/{:d}".format(
+                                   a.size(1), v.size(1), self.audio_channels,
+                                   self.video_channels))
+
+        v = torch.nn.functional.interpolate(v, size=a.size(-1))
+        audio_feature = self.audio_proj(a)
+        visual_feature = self.video_proj(v)
+
+        gate_in = torch.cat([
+            audio_feature,
+            visual_feature,
+            torch.abs(audio_feature - visual_feature),
+        ], dim=1)
+        visual_gate = self.gate_net(gate_in)
+        fused = audio_feature + visual_gate * visual_feature
+        return fused, visual_gate
 
     def forward(self, a, v):
         """
         a: audio features, N x A x Ta
         v: video features, N x V x Tv
         """
-        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
-            raise RuntimeError("Dimention mismatch for audio/video features, "
-                               "{:d}/{:d} vs {:d}/{:d}".format(
-                                   a.size(1), v.size(1), self.audio_channels,
-                                   self.video_channels))
+        fused, _ = self._forward_impl(a, v)
+        return fused
 
-        v = torch.nn.functional.interpolate(v, size=a.size(-1))
-        audio_safe = self.audio_safe(a)
-        av_candidate = self.av_candidate(torch.cat([a, v], dim=1))
-
-        gate_in = torch.cat([
-            audio_safe,
-            av_candidate,
-            torch.abs(av_candidate - audio_safe),
-        ], dim=1)
-        visual_gate = self.gate_net(gate_in)
-
-        return audio_safe + visual_gate * (av_candidate - audio_safe)
+    def forward_with_gate(self, a, v):
+        """Return fused features and gate values for diagnostics only."""
+        return self._forward_impl(a, v)
 
 
 class CrossAttentionFusion(nn.Module):
