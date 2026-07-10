@@ -21,9 +21,12 @@ audionet:
     K: 3                # Video kernel size
     D: 5                # Video repeats
     F: 256              # Fusion channels
-    fusion_type: "cross_attention"   # Track2: let audio tokens query aligned visual tokens
-    fusion_heads: 4                  # Must divide F; 4 heads keeps this prototype compact
-    fusion_dropout: 0.0              # Keep disabled for the first controlled comparison
+    fusion_type: "cross_attention"       # Audio queries native-rate visual tokens
+    fusion_heads: 4                      # Must divide F
+    fusion_dropout: 0.0                  # Controlled first comparison
+    fusion_attention_window: 12          # Covers Track2 desync up to +/-10 video frames
+    fusion_position_bias_strength: 0.1   # Soft preference for nearby AV positions
+    fusion_residual_init: 0.1            # Conservative visual-context residual at init
     R: 4                # Number of all repeats
     skip_con: false
     audio_index: 1
@@ -96,9 +99,9 @@ datamodule:
 
 # Experiment config
 exp:
-  exp_name: Track2-AVConvTasNet-CrossAttention
+  exp_name: Track2-AVConvTasNet-CrossAttention-V2
 
 # SwanLab logger config (instantiated on rank 0 only)
 logger:
   project: Real-Wold-AVSE
-  experiment_name: Track2-AVConvTasNet-CrossAttention
+  experiment_name: Track2-AVConvTasNet-CrossAttention-V2

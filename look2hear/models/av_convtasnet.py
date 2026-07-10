@@ -486,17 +486,19 @@ class ReliabilityGatedFusion(nn.Module):
 
 class CrossAttentionFusion(nn.Module):
     """
-    Cross-attention fusion: audio queries aligned visual evidence.
+    Efficient cross-attention from audio tokens to native-rate video tokens.
 
-    Direct concatenation asks the following separator blocks to discover the
-    audio-visual relationship by themselves. Cross attention makes that
-    relationship explicit: each audio time step forms a query and attends over
-    the time-aligned visual sequence. This is a compact AV-ConvTasNet-friendly
-    version of recent AVSS/AVTSE attention fusion ideas.
+    Audio encoder tokens are much denser than video tokens. Keeping video at its
+    native temporal rate avoids repeating visual features and changes attention
+    cost from O(Ta^2) to O(Ta * Tv). A relative-time bias and a tolerant local
+    window preserve the alignment prior while allowing Track 2 AV desync. The
+    attended visual context enters through a small learnable residual scale, so
+    a newly initialized attention block does not dominate the audio path.
     """
 
     def __init__(self, audio_channels, video_channels, out_channels,
-                 num_heads=4, dropout=0.0):
+                 num_heads=4, dropout=0.0, attention_window=12,
+                 position_bias_strength=0.1, residual_init=0.1):
         super(CrossAttentionFusion, self).__init__()
         self.audio_channels = audio_channels
         self.video_channels = video_channels
@@ -511,47 +513,116 @@ class CrossAttentionFusion(nn.Module):
                 f"num_heads ({num_heads})"
             )
 
-        self.audio_proj = nn.Conv1d(audio_channels, out_channels, 1)
-        self.video_proj = nn.Conv1d(video_channels, out_channels, 1)
+        attention_window = int(attention_window)
+        position_bias_strength = float(position_bias_strength)
+        residual_init = float(residual_init)
+        if attention_window < 0:
+            raise ValueError(
+                f"attention_window must be non-negative, got {attention_window}"
+            )
+        if position_bias_strength < 0:
+            raise ValueError(
+                "position_bias_strength must be non-negative, got "
+                f"{position_bias_strength}"
+            )
+        if residual_init < 0:
+            raise ValueError(
+                f"residual_init must be non-negative, got {residual_init}"
+            )
+
+        self.num_heads = num_heads
+        self.attention_window = attention_window
+        self.position_bias_strength = position_bias_strength
+
+        # A single bias on the audio projection matches the bias placement of
+        # baseline Conv1d(cat([audio, video])). This also lets train.py split a
+        # baseline fusion kernel into meaningful warm-start projections.
+        self.audio_proj = nn.Conv1d(audio_channels, out_channels, 1, bias=True)
+        self.video_proj = nn.Conv1d(video_channels, out_channels, 1, bias=False)
+        self.audio_norm = nn.LayerNorm(out_channels)
+        self.video_norm = nn.LayerNorm(out_channels)
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=out_channels,
             num_heads=num_heads,
             dropout=dropout,
             batch_first=True,
         )
-        self.norm = nn.LayerNorm(out_channels)
-        self.out_proj = nn.Conv1d(out_channels, out_channels, 1)
+        self.residual_scale = nn.Parameter(torch.tensor(residual_init))
+        self._reset_attention_to_identity()
+
+    def _reset_attention_to_identity(self):
+        """Start Q/K/V and output projections as trainable identities."""
+        with torch.no_grad():
+            identity = torch.eye(
+                self.out_channels,
+                device=self.cross_attn.in_proj_weight.device,
+                dtype=self.cross_attn.in_proj_weight.dtype,
+            )
+            self.cross_attn.in_proj_weight.zero_()
+            for offset in (0, self.out_channels, self.out_channels * 2):
+                self.cross_attn.in_proj_weight[
+                    offset:offset + self.out_channels
+                ].copy_(identity)
+            if self.cross_attn.in_proj_bias is not None:
+                self.cross_attn.in_proj_bias.zero_()
+            self.cross_attn.out_proj.weight.copy_(identity)
+            if self.cross_attn.out_proj.bias is not None:
+                self.cross_attn.out_proj.bias.zero_()
+
+    def _make_temporal_bias(self, audio_steps, video_steps, device, dtype):
+        """Build a [Ta, Tv] relative-time bias at the native video rate."""
+        audio_position = torch.linspace(
+            0, video_steps - 1, audio_steps, device=device, dtype=dtype
+        )
+        video_position = torch.arange(video_steps, device=device, dtype=dtype)
+        distance = torch.abs(audio_position[:, None] - video_position[None, :])
+        bias = -self.position_bias_strength * distance
+        if self.attention_window > 0:
+            bias = bias.masked_fill(distance > self.attention_window, float("-inf"))
+        return bias
+
+    def _forward_impl(self, a, v, need_weights):
+        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
+            raise RuntimeError("Dimension mismatch for audio/video features, "
+                               "{:d}/{:d} vs {:d}/{:d}".format(
+                                   a.size(1), v.size(1), self.audio_channels,
+                                   self.video_channels))
+
+        audio_base = self.audio_proj(a).transpose(1, 2)
+        video_tokens = self.video_proj(v).transpose(1, 2)
+        query = self.audio_norm(audio_base)
+        key_value = self.video_norm(video_tokens)
+        temporal_bias = self._make_temporal_bias(
+            query.size(1), key_value.size(1), query.device, query.dtype
+        )
+        attended, weights = self.cross_attn(
+            query=query,
+            key=key_value,
+            value=key_value,
+            attn_mask=temporal_bias,
+            need_weights=need_weights,
+            average_attn_weights=False,
+        )
+        fused = audio_base + self.residual_scale * attended
+        return fused.transpose(1, 2), weights
 
     def forward(self, a, v):
         """
         a: audio features, N x A x Ta
         v: video features, N x V x Tv
         """
-        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
-            raise RuntimeError("Dimention mismatch for audio/video features, "
-                               "{:d}/{:d} vs {:d}/{:d}".format(
-                                   a.size(1), v.size(1), self.audio_channels,
-                                   self.video_channels))
+        fused, _ = self._forward_impl(a, v, need_weights=False)
+        return fused
 
-        v = torch.nn.functional.interpolate(v, size=a.size(-1))
-        a_proj = self.audio_proj(a)
-        v_proj = self.video_proj(v)
-
-        # MultiheadAttention expects [batch, time, channel] when batch_first=True.
-        query = a_proj.transpose(1, 2)
-        key_value = v_proj.transpose(1, 2)
-        attended, _ = self.cross_attn(
-            query=query,
-            key=key_value,
-            value=key_value,
-            need_weights=False,
-        )
-        fused = self.norm(query + attended)
-        return self.out_proj(fused.transpose(1, 2))
+    def forward_with_attention(self, a, v):
+        """Return fused features and per-head attention for diagnostics."""
+        return self._forward_impl(a, v, need_weights=True)
 
 
 def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels,
-                       gate_hidden=128, num_heads=4, dropout=0.0):
+                       gate_hidden=128, num_heads=4, dropout=0.0,
+                       attention_window=12, position_bias_strength=0.1,
+                       residual_init=0.1):
     """Create the selected audio-visual fusion module."""
     fusion_type = (fusion_type or "concat").lower()
     if fusion_type == "concat":
@@ -570,6 +641,9 @@ def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels
             out_channels,
             num_heads=num_heads,
             dropout=dropout,
+            attention_window=attention_window,
+            position_bias_strength=position_bias_strength,
+            residual_init=residual_init,
         )
     raise ValueError(
         "Unsupported fusion_type {!r}. Expected one of: concat, "
@@ -631,7 +705,10 @@ class AV_model(nn.Module):
             fusion_type="concat",
             fusion_gate_hidden=128,
             fusion_heads=4,
-            fusion_dropout=0.0):
+            fusion_dropout=0.0,
+            fusion_attention_window=12,
+            fusion_position_bias_strength=0.1,
+            fusion_residual_init=0.1):
         super(AV_model, self).__init__()
         self.video = Video_Sequential(E, V, K, skip_con=skip_con, repeat=D)
         # n x S > n x N x T
@@ -662,6 +739,9 @@ class AV_model(nn.Module):
             gate_hidden=fusion_gate_hidden,
             num_heads=fusion_heads,
             dropout=fusion_dropout,
+            attention_window=fusion_attention_window,
+            position_bias_strength=fusion_position_bias_strength,
+            residual_init=fusion_residual_init,
         )
         self.feats_conv = Audio_Sequential(
             R - audio_index,
@@ -772,6 +852,9 @@ class AV_ConvTasNet(BaseModel):
         fusion_gate_hidden=128,
         fusion_heads=4,
         fusion_dropout=0.0,
+        fusion_attention_window=12,
+        fusion_position_bias_strength=0.1,
+        fusion_residual_init=0.1,
         # Other parameters
         sample_rate=16000,
         skip_con=False,
@@ -796,6 +879,9 @@ class AV_ConvTasNet(BaseModel):
             fusion_gate_hidden=fusion_gate_hidden,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
+            fusion_attention_window=fusion_attention_window,
+            fusion_position_bias_strength=fusion_position_bias_strength,
+            fusion_residual_init=fusion_residual_init,
             sample_rate=sample_rate,
             skip_con=skip_con,
             audio_index=audio_index,
@@ -835,6 +921,9 @@ class AV_ConvTasNet(BaseModel):
             fusion_gate_hidden=fusion_gate_hidden,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
+            fusion_attention_window=fusion_attention_window,
+            fusion_position_bias_strength=fusion_position_bias_strength,
+            fusion_residual_init=fusion_residual_init,
             skip_con=skip_con,
             audio_index=audio_index,
             norm=norm,

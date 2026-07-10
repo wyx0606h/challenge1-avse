@@ -61,6 +61,58 @@ def find_latest_checkpoint(exp_dir):
     return None
 
 
+def adapt_baseline_concat_for_cross_attention(model, model_sd):
+    """Split baseline concat weights into EXP-003 audio/video projections.
+
+    The new attention and normalization parameters have no baseline counterpart
+    and remain at their explicit initialization. Reusing the two channel slices
+    gives both modalities a meaningful starting projection during warm-start.
+    """
+    fusion = getattr(getattr(model, "av_model", None), "concat", None)
+    if fusion is None or not all(
+        hasattr(fusion, name)
+        for name in ("audio_proj", "video_proj", "cross_attn", "residual_scale")
+    ):
+        return model_sd
+
+    old_weight_key = "av_model.concat.conv1d.weight"
+    old_bias_key = "av_model.concat.conv1d.bias"
+    audio_weight_key = "av_model.concat.audio_proj.weight"
+    audio_bias_key = "av_model.concat.audio_proj.bias"
+    video_weight_key = "av_model.concat.video_proj.weight"
+    if old_weight_key not in model_sd or audio_weight_key in model_sd:
+        return model_sd
+
+    weight = model_sd[old_weight_key]
+    expected_shape = (
+        fusion.out_channels,
+        fusion.audio_channels + fusion.video_channels,
+        1,
+    )
+    if tuple(weight.shape) != expected_shape:
+        raise RuntimeError(
+            "Cannot adapt baseline fusion weight with shape {} to expected {}"
+            .format(tuple(weight.shape), expected_shape)
+        )
+
+    adapted = dict(model_sd)
+    adapted[audio_weight_key] = weight[:, :fusion.audio_channels, :].clone()
+    adapted[video_weight_key] = weight[:, fusion.audio_channels:, :].clone()
+    if old_bias_key in adapted:
+        adapted[audio_bias_key] = adapted.pop(old_bias_key).clone()
+    else:
+        adapted[audio_bias_key] = torch.zeros(
+            fusion.out_channels, dtype=weight.dtype, device=weight.device
+        )
+    del adapted[old_weight_key]
+
+    print_only(
+        "Warm-start: split baseline concat weights into EXP-003 audio/video "
+        "projections; attention parameters keep their reviewed initialization."
+    )
+    return adapted
+
+
 def load_model_weights(model, ckpt_path):
     """Load only model weights from a checkpoint (no optimizer/scheduler state).
 
@@ -85,6 +137,7 @@ def load_model_weights(model, ckpt_path):
     else:
         model_sd = state
 
+    model_sd = adapt_baseline_concat_for_cross_attention(model, model_sd)
     missing, unexpected = model.load_state_dict(model_sd, strict=False)
     print_only(f"Warm-start: loaded model weights from {ckpt_path}")
     if missing:
