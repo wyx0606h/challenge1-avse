@@ -12,6 +12,8 @@
 - **Parent result:** EXP-006, with EXP-007 retained as a secondary comparison
 - **Immutable source baseline:** `baseline/track2-source-v1`
 - **Branch:** `exp/hierarchical-visual-fusion`
+- **Protocol commit:** `43ab3b3`
+- **Implementation commit:** `78f87bbaa4f996e18304e144677815fea398982a`
 - **Formal-run commit SHA:** TODO
 
 This record defines two ordered implementations under one coherent research
@@ -133,14 +135,14 @@ Intentionally unchanged:
   for the first controlled comparison;
 - all official baseline configurations and existing experiment records.
 
-## Planned modified files
+## Implemented files
 
-| File | Planned change | Reason |
+| File | Change | Reason |
 |---|---|---|
-| `look2hear/models/av_convtasnet.py` | intermediate V-TCN capture, V1 aggregator, V2 stage gates | implement the hierarchy while preserving default behavior |
+| `look2hear/models/av_convtasnet.py` | intermediate V-TCN capture, V1 aggregator, V2 stage gates, optional diagnostics | implement the hierarchy while preserving the disabled/default path |
 | `configs/track2_av_convtasnet_hierarchical_v1.yml` | dedicated V1 run | isolate H1 |
 | `configs/track2_av_convtasnet_hierarchical_v2.yml` | dedicated V2 run | isolate H2 |
-| `scripts/check_hierarchical_visual_fusion.py` | synthetic shapes, fallback, gradients, config checks | reject unsafe implementations before a server run |
+| `scripts/check_hierarchical_visual_fusion.py` | config-only mode plus deferred tensor/fallback/gradient checks | separate local static validation from server model validation |
 | `EXPERIMENTS.md` | EXP-008 registry row | provenance |
 | this report | protocol, commands, results placeholders | research traceability |
 
@@ -180,6 +182,11 @@ hierarchical_stage_residual_init: 0.05
 If V2 is structurally positive, mixed online degradation becomes a separately
 recorded follow-up rather than an untracked change to EXP-008.
 
+Configuration SHA-256 values for the implementation commit:
+
+- V1: `ED4E24ED64903C7AD1A97ABF8965FA47AE2F07BB05CFCFFC783B7C09D49C3786`
+- V2: `43E73616986B2012992069C2D8BA456F289B0B2C5AD5DFCFF01A1C74CC5ECAEC`
+
 ## Evaluation and locked comparisons
 
 Primary controlled baseline: EXP-006 full Track 2 dev.
@@ -210,13 +217,29 @@ outputs is invalid.
 
 ## Commands
 
-### Preflight and synthetic checks
+### Local static checks
 
 ```bash
 git status --short --branch
-python -m compileall look2hear/models/av_convtasnet.py train.py
-python scripts/check_hierarchical_visual_fusion.py
+python -m py_compile \
+  look2hear/models/av_convtasnet.py \
+  scripts/check_hierarchical_visual_fusion.py
+python scripts/check_hierarchical_visual_fusion.py --config-only
 ```
+
+These checks passed on 2026-07-15. They compile Python and validate the two
+YAML protocols without importing the model or executing a tensor forward.
+
+### Deferred server tensor checks
+
+```bash
+/home/avse/avse_gpu_venv/bin/python scripts/check_hierarchical_visual_fusion.py
+```
+
+The default check verifies intermediate shapes, zero-residual equivalence to
+the final-layer-only path, non-zero-path gradients, and V2 diagnostics. It was
+not run locally because the target server/environment is not connected; this
+deferral was explicitly requested and is not a passed model validation.
 
 ### V1 formal run
 
@@ -258,7 +281,9 @@ confirmed immediately before launch.
 
 ## Runtime, artifacts, results, and conclusion
 
-- **Configuration hashes:** TODO after implementation
+- **Configuration hashes:** recorded above
+- **Static syntax/config validation:** Passed on 2026-07-15
+- **Tensor forward/warm-start validation:** TODO on target server
 - **Formal-run commit:** TODO
 - **Checkpoint and checksum:** TODO
 - **Logs, predictions, metric paths:** TODO
