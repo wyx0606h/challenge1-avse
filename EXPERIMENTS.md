@@ -14,6 +14,7 @@ artifacts have been checked, and complete metrics have been recorded.
 |---|---|
 | Planned | Protocol exists, but the formal run has not started |
 | Running | Formal execution is currently in progress |
+| Paused | Formal execution was intentionally stopped with resumable artifacts retained |
 | Failed | Execution ended unsuccessfully or produced invalid artifacts |
 | Completed | Execution and artifact/metric verification both succeeded |
 
@@ -22,8 +23,12 @@ artifacts have been checked, and complete metrics have been recorded.
 | ID | Name | Status | Branch | Commit | Parent | Result summary | Detailed record |
 |---|---|---|---|---|---|---|---|
 | EXP-001 | Official Track 2 baseline reproduction | Planned | `exp/baseline-reproduction` | TODO | `baseline/track2-source-v1` | No team result yet | TODO |
-| EXP-002 | Reliability-gated visual fusion | Planned | `exp/experiment-cross` | TODO | `baseline/track2-source-v1` | No result yet | `docs/experiments/EXP-002-reliability-gated-fusion.md` |
+| EXP-002 | Reliability-gated visual fusion | Completed | `exp/experiment-cross` | `9cbbcc3780babe793014cb43b31aaca6fa22182b` | `baseline/track2-source-v1` | Negative result: full Track 2 dev metrics are worse than archived baseline on SI-SDR, PESQ, STOI, UTMOS, CER, and speaker similarity; DNSMOS background improves only partially | `docs/experiments/EXP-002-reliability-gated-fusion.md` |
 | EXP-003 | Cross-attention visual fusion | Planned | `exp/experiment-cross` | TODO | `baseline/track2-source-v1` | No result yet | `docs/experiments/EXP-003-cross-attention-fusion.md` |
+| EXP-004 | Frozen-baseline reliability-gate fusion | Paused | `exp/reliability-gate-frozen-fusion` | TODO | `EXP-002` / `baseline/track2-source-v1` | Paused on 2026-07-11 to free GPU for dev-domain adaptation; `last.ckpt` retained at epoch 30 for resume | `docs/experiments/EXP-004-frozen-baseline-reliability-gate.md` |
+| EXP-005 | Baseline fine-tune on dev-matched Chinese-LiPS v1 | Failed | current worktree | TODO | official Track 2 baseline checkpoint | Invalid full-dev metrics: checkpoint produced severe waveform gain explosions on official dev aligned visual inputs due to adapted internal visual-branch BN stats | `docs/experiments/EXP-005-baseline-chineselips-devmatched-v1.md` |
+| EXP-006 | Baseline fine-tune on dev-matched Chinese-LiPS v1 with frozen internal visual branch BN | Completed | current worktree | `9cbbcc3780babe793014cb43b31aaca6fa22182b` | EXP-005 / official Track 2 baseline checkpoint | Valid positive result: freezing `av_model.video` prevents gain explosions; dev-matched v1 improves remix objective metrics, UTMOS, speaker similarity, and overall CER over the official baseline | `docs/experiments/EXP-006-baseline-chineselips-devmatched-freeze-avvideo-bn.md` |
+| EXP-007 | ReliabilityGate fine-tune on dev-matched Chinese-LiPS v1 with frozen visual branch | Completed | current worktree | `9cbbcc3780babe793014cb43b31aaca6fa22182b` | EXP-006 / official Track 2 baseline checkpoint | Positive result versus the official baseline: improves 9/10 reported remix metrics and 5/7 reported mix metrics; only remix CER and mix DNSMOS SIG/BAK regress | `docs/experiments/EXP-007-reliabilitygate-chineselips-devmatched-freeze-avvideo.md` |
 
 `baseline/track2-source-v1` freezes the source code and collaboration workflow.
 It is not an experiment result and does not claim reproduction of the official

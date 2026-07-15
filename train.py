@@ -135,6 +135,91 @@ def load_model_weights(model, ckpt_path):
         print_only(f"  unexpected keys ({len(unexpected)}): {unexpected}")
 
 
+def apply_trainable_param_prefixes(model, prefixes):
+    """Freeze all parameters except those whose names match configured prefixes."""
+    if not prefixes:
+        return
+    prefixes = tuple(str(p) for p in prefixes)
+    total = 0
+    trainable = 0
+    trainable_names = []
+    frozen_names = []
+
+    for name, param in model.named_parameters():
+        total += param.numel()
+        keep_trainable = name.startswith(prefixes)
+        param.requires_grad = keep_trainable
+        if keep_trainable:
+            trainable += param.numel()
+            trainable_names.append(name)
+        else:
+            frozen_names.append(name)
+
+    if not trainable_names:
+        raise ValueError(
+            "training.trainable_param_prefixes matched no parameters: "
+            f"{list(prefixes)}"
+        )
+
+    print_only("Trainable parameter prefix policy enabled:")
+    print_only(f"  trainable prefixes: {list(prefixes)}")
+    print_only(f"  trainable tensors ({len(trainable_names)}): {trainable_names}")
+    print_only(f"  frozen tensors: {len(frozen_names)}")
+    print_only(f"  trainable parameters: {trainable} / {total}")
+
+
+def apply_freeze_param_prefixes(model, prefixes):
+    """Freeze parameters whose names match configured prefixes."""
+    if not prefixes:
+        return
+    prefixes = tuple(str(p) for p in prefixes)
+    frozen = 0
+    frozen_names = []
+    total = sum(p.numel() for p in model.parameters())
+
+    for name, param in model.named_parameters():
+        if name.startswith(prefixes):
+            param.requires_grad = False
+            frozen += param.numel()
+            frozen_names.append(name)
+
+    if not frozen_names:
+        raise ValueError(
+            "training.freeze_param_prefixes matched no parameters: "
+            f"{list(prefixes)}"
+        )
+
+    print_only("Freeze parameter prefix policy enabled:")
+    print_only(f"  frozen prefixes: {list(prefixes)}")
+    print_only(f"  frozen tensors ({len(frozen_names)}): {frozen_names}")
+    print_only(f"  frozen parameters: {frozen} / {total}")
+
+
+def apply_force_eval_module_prefixes(model, prefixes):
+    """Keep modules in eval mode even when Lightning switches the model to train."""
+    if not prefixes:
+        return
+    prefixes = tuple(str(p) for p in prefixes)
+    missing = []
+    for prefix in prefixes:
+        module = model
+        for part in prefix.split("."):
+            module = getattr(module, part, None)
+            if module is None:
+                missing.append(prefix)
+                break
+        if module is not None:
+            module.eval()
+    if missing:
+        raise ValueError(
+            "training.force_eval_module_prefixes matched no module: "
+            f"{missing}"
+        )
+    model._force_eval_module_prefixes = prefixes
+    print_only("Force-eval module prefix policy enabled:")
+    print_only(f"  eval prefixes: {list(prefixes)}")
+
+
 def main(config, warm_start=None):
     """Main training function"""
 
@@ -171,6 +256,19 @@ def main(config, warm_start=None):
     # so the optimizer below is rebuilt from the config lr. Disables auto-resume.
     if warm_start is not None:
         load_model_weights(model, warm_start)
+
+    apply_trainable_param_prefixes(
+        model,
+        config.get("training", {}).get("trainable_param_prefixes"),
+    )
+    apply_freeze_param_prefixes(
+        model,
+        config.get("training", {}).get("freeze_param_prefixes"),
+    )
+    apply_force_eval_module_prefixes(
+        model,
+        config.get("training", {}).get("force_eval_module_prefixes"),
+    )
 
     # Define optimizer. Only optimize trainable params -- the bundled video
     # encoder is frozen, so it is excluded here.
@@ -245,7 +343,7 @@ def main(config, warm_start=None):
 
     # Setup GPUs
     gpus = config["training"]["gpus"] if torch.cuda.is_available() else None
-    distributed_backend = "cuda" if torch.cuda.is_available() else None
+    distributed_backend = "cuda" if torch.cuda.is_available() else "auto"
 
     # Setup logger. Only instantiate SwanLab on global rank 0: SwanLabLogger's
     # `experiment` calls swanlab.init without a rank guard, so under DDP every
@@ -257,8 +355,8 @@ def main(config, warm_start=None):
         and int(os.environ.get("NODE_RANK", 0)) == 0
         and int(os.environ.get("GLOBAL_RANK", 0)) == 0
     )
-    if is_rank_zero and SwanLabLogger is not None:
-        log_cfg = config.get("logger", {}) or {}
+    log_cfg = config.get("logger", {}) or {}
+    if is_rank_zero and log_cfg.get("enabled", True) and SwanLabLogger is not None:
         log_dir = os.path.join(exp_dir, "logs")
         os.makedirs(log_dir, exist_ok=True)
         print_only("Instantiating SwanLabLogger")
@@ -267,6 +365,8 @@ def main(config, warm_start=None):
             experiment_name=log_cfg.get("experiment_name", config["exp"]["exp_name"]),
             save_dir=log_dir,
         )
+    elif is_rank_zero and not log_cfg.get("enabled", True):
+        print_only("SwanLabLogger disabled by config.")
     elif is_rank_zero:
         print_only("SwanLabLogger unavailable; continuing without SwanLab logging.")
 

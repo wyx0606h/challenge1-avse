@@ -872,16 +872,26 @@ class AV_ConvTasNet(BaseModel):
         return self.av_model(x, v)
 
     def train(self, mode=True):
-        """Set training mode, but keep the frozen video encoder in eval.
+        """Set training mode, while keeping configured frozen modules in eval.
 
         PyTorch's ``train()`` recurses into every submodule, which would put the
         video encoder's BatchNorm layers back in training mode and let their
         running stats drift. Lightning re-asserts train mode on every ``fit``, so
         this override is the load-bearing guard that keeps the pretrained encoder
-        truly frozen (stats fixed, no dropout) throughout training.
+        truly frozen (stats fixed, no dropout) throughout training. Extra module
+        prefixes can be pinned by train.py for experiments that freeze internal
+        separator branches with BatchNorm buffers.
         """
         super().train(mode)
         self.video_model.eval()
+        for prefix in getattr(self, "_force_eval_module_prefixes", ()):
+            module = self
+            for part in str(prefix).split("."):
+                module = getattr(module, part, None)
+                if module is None:
+                    break
+            if module is not None:
+                module.eval()
         return self
 
     def get_model_args(self):

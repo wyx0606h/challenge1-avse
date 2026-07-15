@@ -38,6 +38,7 @@ normalization). Audio is 16 kHz mono, read full-length.
 import os
 import json
 import pickle
+import sys
 
 import cv2
 import numpy as np
@@ -62,6 +63,24 @@ REAL_AVSE_ROOT = "/gpfs/hulab/public_datasets/audio_datasets/REAL-AVSE"
 # position for the model. We re-crop REAL faces to match this composition.
 _TARGET_FACE_FRAC = 0.78
 _TARGET_CX, _TARGET_CY = 0.50, 0.61
+
+
+def _load_numpy_pickle(path):
+    """Load numpy-2 pickles in older numpy environments.
+
+    Official dev landmark files can reference ``numpy._core.multiarray``.
+    Numpy 1.x exposes the same implementation under ``numpy.core.multiarray``.
+    """
+    try:
+        with open(path, "rb") as handle:
+            return pickle.load(handle)
+    except ModuleNotFoundError as exc:
+        if not str(exc).endswith("'numpy._core'"):
+            raise
+        sys.modules.setdefault("numpy._core", np.core)
+        sys.modules.setdefault("numpy._core.multiarray", np.core.multiarray)
+        with open(path, "rb") as handle:
+            return pickle.load(handle)
 
 
 def _read_face_gray(path, size):
@@ -138,7 +157,7 @@ def _read_face_gray_aligned(mp4_path, pkl_path, size):
     Returns ``None`` if the clip has no valid landmark detections, so the caller
     can fall back to the legacy whole-face resize.
     """
-    landmarks = pickle.load(open(pkl_path, "rb"))
+    landmarks = _load_numpy_pickle(pkl_path)
     box = _fixed_face_box(landmarks)
     if box is None:
         return None

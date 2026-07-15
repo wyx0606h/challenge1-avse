@@ -1,0 +1,106 @@
+# Track2 reliability-gate experiment with frozen baseline parameters.
+#
+# Difference from configs/track2_av_convtasnet_reliability_gate.yml:
+# only the fusion module under av_model.concat.* is trainable. The audio
+# encoder, separator, video temporal stack, and frozen lip ResNet encoder keep
+# their warm-started baseline weights fixed.
+
+# Network config
+audionet:
+  audionet_name: AV_ConvTasNet
+  audionet_config:
+    N: 256
+    L: 40
+    B: 256
+    Sc: 256
+    H: 512
+    P: 3
+    X: 8
+    E: 512
+    V: 256
+    K: 3
+    D: 5
+    F: 256
+    fusion_type: "reliability_gate"
+    fusion_gate_hidden: 128
+    R: 4
+    skip_con: false
+    audio_index: 1
+    norm: "gln"
+    causal: false
+
+videonet:
+  videonet_name: ResNetVideoModel
+  videonet_config:
+    relu_type: "prelu"
+    pretrain: null
+
+# Loss config
+loss:
+  train:
+    loss_func: PITLossWrapper
+    sdr_type: pairwise_neg_snr
+    config:
+      pit_from: pw_mtx
+      threshold_byloss: false
+  val:
+    loss_func: PITLossWrapper
+    sdr_type: pairwise_neg_sisdr
+    config:
+      pit_from: pw_mtx
+      threshold_byloss: false
+
+# Training config
+training:
+  system: AudioVisualLightningModule
+  gpus: [4]
+  parallel: ddp
+  epochs: 500
+  trainable_param_prefixes:
+    - "av_model.concat."
+  early_stop:
+    monitor: val_loss
+    mode: min
+    patience: 20
+    verbose: true
+
+# Optimizer config
+optimizer:
+  optim_name: adam
+  lr: 0.0001
+  weight_decay: 0.0
+
+# Scheduler config
+scheduler:
+  sche_name: ReduceLROnPlateau
+  sche_config:
+    patience: 10
+    factor: 0.5
+
+# Data config
+datamodule:
+  data_name: Track2DataModule
+  data_config:
+    train_dir: /home/avse/processed_Chineselips/tr
+    valid_dir: /home/avse/processed_Chineselips/cv
+    test_dir: /home/avse/processed_Chineselips/tt
+    n_src: 1
+    sample_rate: 16000
+    segment: 2.0
+    normalize_audio: false
+    face_size: 96
+    degrade_prob: 1.0
+    batch_size: 8
+    num_workers: 0
+    pin_memory: true
+    persistent_workers: false
+
+# Experiment config
+exp:
+  exp_name: Track2-AVConvTasNet-ReliabilityGate-FrozenFusion
+
+# SwanLab logger config (instantiated on rank 0 only)
+logger:
+  enabled: false
+  project: Real-Wold-AVSE
+  experiment_name: Track2-AVConvTasNet-ReliabilityGate-FrozenFusion
