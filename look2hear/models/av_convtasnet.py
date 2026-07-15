@@ -238,6 +238,8 @@ class Audio_Sequential(nn.Module):
         super(Audio_Sequential, self).__init__()
         self.lists = nn.ModuleList([])
         self.skip_con = skip_con
+        self.repeats = int(repeats)
+        self.blocks = int(blocks)
         for r in range(repeats):
             for b in range(blocks):
                 self.lists.append(Audio_1DConv(
@@ -268,6 +270,31 @@ class Audio_Sequential(nn.Module):
                 out = self.lists[i](x)
                 x = out
             return x
+
+    def forward_repeat(self, x, repeat_index):
+        """Run one complete TCN repeat and return its residual state.
+
+        Hierarchical V2 injects visual evidence only at repeat boundaries. The
+        baseline ``forward`` remains unchanged; this focused method exposes the
+        same ordered blocks without rebuilding the separator or renaming its
+        checkpoint keys.
+        """
+        if self.skip_con:
+            raise RuntimeError(
+                "forward_repeat requires skip_con=False because stage fusion "
+                "needs the residual state, not an accumulated skip output."
+            )
+        repeat_index = int(repeat_index)
+        if repeat_index < 0 or repeat_index >= self.repeats:
+            raise IndexError(
+                f"repeat_index must be in [0, {self.repeats}), got "
+                f"{repeat_index}"
+            )
+        start = repeat_index * self.blocks
+        end = start + self.blocks
+        for block in self.lists[start:end]:
+            x = block(x)
+        return x
 
 
 # ---------- Video Part -------------
@@ -357,6 +384,7 @@ class Video_Sequential(nn.Module):
         super(Video_Sequential, self).__init__()
         self.conv1d_list = nn.ModuleList([])
         self.skip_con = skip_con
+        self.repeat = int(repeat)
         for i in range(repeat):
             in_channels = out_channels if i else in_channels
             self.conv1d_list.append(
@@ -373,18 +401,197 @@ class Video_Sequential(nn.Module):
         x: [B, N, T]
         out: [B, N, T]
         """
-        if self.skip_con:
-            skip_connection = 0
-            for i in range(len(self.conv1d_list)):
-                skip, out = self.conv1d_list[i](x)
-                x = out
-                skip_connection += skip
-            return skip_connection
-        else:
-            for i in range(len(self.conv1d_list)):
-                out = self.conv1d_list[i](x)
-                x = out
-            return x
+        final, _ = self.forward_with_layers(x, ())
+        return final
+
+    def forward_with_layers(self, x, layer_indices):
+        """Return the normal output plus selected one-based block states.
+
+        The selected tensors are residual block outputs, even when the legacy
+        ``skip_con`` mode is enabled. This gives every requested depth the same
+        channel semantics while preserving the original final-output behavior.
+        """
+        layer_indices = tuple(int(index) for index in layer_indices)
+        if tuple(sorted(set(layer_indices))) != layer_indices:
+            raise ValueError(
+                "layer_indices must be sorted unique one-based indices, got "
+                f"{layer_indices}"
+            )
+        if layer_indices and (
+            layer_indices[0] < 1 or layer_indices[-1] > len(self.conv1d_list)
+        ):
+            raise ValueError(
+                "layer_indices must be within [1, {}], got {}".format(
+                    len(self.conv1d_list), layer_indices
+                )
+            )
+
+        requested = set(layer_indices)
+        captured = {}
+        skip_connection = 0
+        for index, block in enumerate(self.conv1d_list, start=1):
+            if self.skip_con:
+                skip, out = block(x)
+                skip_connection = skip_connection + skip
+            else:
+                out = block(x)
+            x = out
+            if index in requested:
+                captured[index] = x
+
+        final = skip_connection if self.skip_con else x
+        return final, tuple(captured[index] for index in layer_indices)
+
+
+class HierarchicalVisualAggregator(nn.Module):
+    """V1: add shallow/mid V-TCN evidence to the deepest visual state.
+
+    The deepest selected feature is an unchanged base path. Earlier features
+    pass through identity-initialized 1x1 adapters and bounded residual scales.
+    Zero scales therefore recover the previous final-layer-only representation
+    exactly, which makes warm-start comparisons interpretable.
+    """
+
+    def __init__(self, channels, num_levels, residual_init=0.05):
+        super(HierarchicalVisualAggregator, self).__init__()
+        channels = int(channels)
+        num_levels = int(num_levels)
+        residual_init = float(residual_init)
+        if channels <= 0:
+            raise ValueError(f"channels must be positive, got {channels}")
+        if num_levels < 2:
+            raise ValueError(f"num_levels must be at least 2, got {num_levels}")
+        if residual_init < 0:
+            raise ValueError(
+                f"residual_init must be non-negative, got {residual_init}"
+            )
+
+        self.channels = channels
+        self.num_levels = num_levels
+        self.adapters = nn.ModuleList(
+            nn.Conv1d(channels, channels, 1, bias=False)
+            for _ in range(num_levels - 1)
+        )
+        self.residual_scales = nn.Parameter(
+            torch.full((num_levels - 1,), residual_init)
+        )
+        self._reset_adapters_to_identity()
+
+    def _reset_adapters_to_identity(self):
+        with torch.no_grad():
+            for adapter in self.adapters:
+                adapter.weight.zero_()
+                diagonal = torch.arange(self.channels)
+                adapter.weight[diagonal, diagonal, 0] = 1.0
+
+    def effective_scales(self):
+        """Return bounded scalar weights used by the shallow residual paths."""
+        return torch.tanh(self.residual_scales)
+
+    def forward(self, features):
+        features = tuple(features)
+        if len(features) != self.num_levels:
+            raise ValueError(
+                f"Expected {self.num_levels} visual levels, got {len(features)}"
+            )
+        reference_shape = features[-1].shape
+        for feature in features:
+            if feature.dim() != 3 or feature.shape != reference_shape:
+                raise RuntimeError(
+                    "All hierarchical visual features must share [B, C, T]; "
+                    f"got {[tuple(item.shape) for item in features]}"
+                )
+            if feature.size(1) != self.channels:
+                raise RuntimeError(
+                    f"Expected {self.channels} visual channels, got "
+                    f"{feature.size(1)}"
+                )
+
+        output = features[-1]
+        for scale, adapter, feature in zip(
+            self.effective_scales(), self.adapters, features[:-1]
+        ):
+            output = output + scale * adapter(feature)
+        return output
+
+
+class HierarchicalStageConditioner(nn.Module):
+    """V2: inject one visual depth through a reliability-gated residual."""
+
+    def __init__(self, audio_channels, video_channels, gate_hidden=128,
+                 residual_init=0.05):
+        super(HierarchicalStageConditioner, self).__init__()
+        audio_channels = int(audio_channels)
+        video_channels = int(video_channels)
+        gate_hidden = int(gate_hidden)
+        residual_init = float(residual_init)
+        if min(audio_channels, video_channels, gate_hidden) <= 0:
+            raise ValueError(
+                "audio_channels, video_channels, and gate_hidden must be positive"
+            )
+        if residual_init < 0:
+            raise ValueError(
+                f"residual_init must be non-negative, got {residual_init}"
+            )
+
+        self.audio_channels = audio_channels
+        self.video_channels = video_channels
+        self.video_proj = nn.Conv1d(
+            video_channels, audio_channels, 1, bias=False
+        )
+        self.gate = nn.Sequential(
+            nn.Conv1d(audio_channels * 3, gate_hidden, 1),
+            nn.PReLU(),
+            nn.Conv1d(gate_hidden, audio_channels, 1),
+            nn.Sigmoid(),
+        )
+        self.residual_scale = nn.Parameter(torch.tensor(residual_init))
+        self._reset_stable()
+
+    def _reset_stable(self):
+        with torch.no_grad():
+            if self.audio_channels == self.video_channels:
+                self.video_proj.weight.zero_()
+                diagonal = torch.arange(self.audio_channels)
+                self.video_proj.weight[diagonal, diagonal, 0] = 1.0
+            else:
+                nn.init.xavier_uniform_(self.video_proj.weight)
+            # Start with a neutral 0.5 gate. The small residual scale limits its
+            # effect while allowing the gate to specialize during fine-tuning.
+            self.gate[2].weight.zero_()
+            self.gate[2].bias.zero_()
+
+    def forward_with_gate(self, audio, video):
+        if audio.dim() != 3 or video.dim() != 3:
+            raise RuntimeError("audio and video must both be [B, C, T] tensors")
+        if audio.size(1) != self.audio_channels:
+            raise RuntimeError(
+                f"Expected {self.audio_channels} audio channels, got "
+                f"{audio.size(1)}"
+            )
+        if video.size(1) != self.video_channels:
+            raise RuntimeError(
+                f"Expected {self.video_channels} video channels, got "
+                f"{video.size(1)}"
+            )
+
+        aligned_video = torch.nn.functional.interpolate(
+            video, size=audio.size(-1)
+        )
+        projected_video = self.video_proj(aligned_video)
+        gate_input = torch.cat(
+            [audio, projected_video, torch.abs(audio - projected_video)], dim=1
+        )
+        visual_gate = self.gate(gate_input)
+        output = (
+            audio
+            + torch.tanh(self.residual_scale) * visual_gate * projected_video
+        )
+        return output, visual_gate
+
+    def forward(self, audio, video):
+        output, _ = self.forward_with_gate(audio, video)
+        return output
 
 
 class Concat(nn.Module):
@@ -603,6 +810,7 @@ class AV_model(nn.Module):
         norm    Normalization type
         causal  Two choice(causal or noncausal)
         fusion_type Direct concat, reliability gate, or cross attention
+        hierarchical_fusion_version Disabled, V1 aggregation, or V2 staged gates
     """
 
     def __init__(
@@ -631,9 +839,73 @@ class AV_model(nn.Module):
             fusion_type="concat",
             fusion_gate_hidden=128,
             fusion_heads=4,
-            fusion_dropout=0.0):
+            fusion_dropout=0.0,
+            hierarchical_fusion_version="none",
+            hierarchical_video_layers=(1, 3, 5),
+            hierarchical_residual_init=0.05,
+            hierarchical_gate_hidden=128,
+            hierarchical_stage_residual_init=0.05):
         super(AV_model, self).__init__()
+        hierarchical_fusion_version = str(
+            hierarchical_fusion_version or "none"
+        ).lower()
+        if hierarchical_fusion_version not in ("none", "v1", "v2"):
+            raise ValueError(
+                "hierarchical_fusion_version must be one of none/v1/v2, got "
+                f"{hierarchical_fusion_version!r}"
+            )
+        hierarchical_video_layers = tuple(
+            int(index) for index in hierarchical_video_layers
+        )
+        if hierarchical_fusion_version != "none":
+            if tuple(sorted(set(hierarchical_video_layers))) != (
+                hierarchical_video_layers
+            ):
+                raise ValueError(
+                    "hierarchical_video_layers must be sorted unique one-based "
+                    f"indices, got {hierarchical_video_layers}"
+                )
+            if len(hierarchical_video_layers) < 2:
+                raise ValueError(
+                    "Hierarchical fusion requires at least two visual layers"
+                )
+            if (
+                hierarchical_video_layers[0] < 1
+                or hierarchical_video_layers[-1] > D
+            ):
+                raise ValueError(
+                    f"hierarchical_video_layers must be within [1, {D}], got "
+                    f"{hierarchical_video_layers}"
+                )
+            if hierarchical_video_layers[-1] != D:
+                raise ValueError(
+                    "The deepest hierarchical layer must equal D so the base "
+                    "path recovers the existing final V-TCN output"
+                )
+        if hierarchical_fusion_version == "v2":
+            if skip_con:
+                raise ValueError(
+                    "hierarchical_fusion_version='v2' requires skip_con=False"
+                )
+            required_post_repeats = len(hierarchical_video_layers) - 1
+            if R - audio_index < required_post_repeats:
+                raise ValueError(
+                    "V2 needs at least one post-fusion repeat boundary for each "
+                    "non-local stage: R - audio_index must be >= {}, got {}"
+                    .format(required_post_repeats, R - audio_index)
+                )
+
+        self.hierarchical_fusion_version = hierarchical_fusion_version
+        self.hierarchical_video_layers = hierarchical_video_layers
         self.video = Video_Sequential(E, V, K, skip_con=skip_con, repeat=D)
+        if hierarchical_fusion_version != "none":
+            self.hierarchical_visual_aggregator = HierarchicalVisualAggregator(
+                V,
+                len(hierarchical_video_layers),
+                residual_init=hierarchical_residual_init,
+            )
+        else:
+            self.hierarchical_visual_aggregator = None
         # n x S > n x N x T
         self.encoder = Encoder(1, N, L, stride=L // 2)
         # before repeat blocks, always cLN
@@ -674,6 +946,19 @@ class AV_model(nn.Module):
             norm=norm,
             causal=causal,
             skip_con=skip_con)
+        if hierarchical_fusion_version == "v2":
+            stage_channels = [B] + [F] * (len(hierarchical_video_layers) - 1)
+            self.hierarchical_stage_conditioners = nn.ModuleList(
+                HierarchicalStageConditioner(
+                    audio_channels=channels,
+                    video_channels=V,
+                    gate_hidden=hierarchical_gate_hidden,
+                    residual_init=hierarchical_stage_residual_init,
+                )
+                for channels in stage_channels
+            )
+        else:
+            self.hierarchical_stage_conditioners = nn.ModuleList([])
         # mask 1x1 conv
         # n x F x T => n x N x T
         self.mask = Conv1D(F, N, 1)
@@ -694,7 +979,7 @@ class AV_model(nn.Module):
                 "auxiliary input do not have same batch size with input chunk, {:d} vs {:d}"
                 .format(x.size(0), v.size(0)))
 
-    def forward(self, x, v):
+    def _forward_impl(self, x, v, return_diagnostics=False):
         """
         x: raw waveform chunks, N x C
         v: time variant lip embeddings, N x T x D
@@ -712,18 +997,75 @@ class AV_model(nn.Module):
         a = self.conv1x1(self.cln(w))
         # audio feats: n x B x T
         a = self.audio_conv(a)
-        # lip embeddings: N x T x D => N x V x T
-        v = self.video(v)
+
+        diagnostics = {}
+        if self.hierarchical_fusion_version == "none":
+            # lip embeddings: N x T x D => N x V x T
+            fused_video = self.video(v)
+            video_levels = ()
+        else:
+            _, video_levels = self.video.forward_with_layers(
+                v, self.hierarchical_video_layers
+            )
+            fused_video = self.hierarchical_visual_aggregator(video_levels)
+            if return_diagnostics:
+                diagnostics["video_layers"] = self.hierarchical_video_layers
+                diagnostics["aggregation_scales"] = (
+                    self.hierarchical_visual_aggregator.effective_scales()
+                )
+
+        if self.hierarchical_fusion_version == "v2":
+            if return_diagnostics:
+                a, gate = self.hierarchical_stage_conditioners[
+                    0
+                ].forward_with_gate(a, video_levels[0])
+                stage_gates = [gate]
+            else:
+                a = self.hierarchical_stage_conditioners[0](a, video_levels[0])
+                stage_gates = None
 
         # audio/video fusion
-        y = self.concat(a, v)
+        y = self.concat(a, fused_video)
 
         # fused audio-visual features: n x F x T
-        y = self.feats_conv(y)
+        if self.hierarchical_fusion_version == "v2":
+            for repeat_index in range(self.feats_conv.repeats):
+                y = self.feats_conv.forward_repeat(y, repeat_index)
+                stage_index = repeat_index + 1
+                if stage_index < len(video_levels):
+                    conditioner = self.hierarchical_stage_conditioners[
+                        stage_index
+                    ]
+                    if return_diagnostics:
+                        y, gate = conditioner.forward_with_gate(
+                            y, video_levels[stage_index]
+                        )
+                        stage_gates.append(gate)
+                    else:
+                        y = conditioner(y, video_levels[stage_index])
+            if return_diagnostics:
+                diagnostics["stage_gates"] = tuple(stage_gates)
+                diagnostics["stage_residual_scales"] = torch.stack(
+                    [
+                        torch.tanh(conditioner.residual_scale)
+                        for conditioner in self.hierarchical_stage_conditioners
+                    ]
+                )
+        else:
+            y = self.feats_conv(y)
         # n x N x T
         m = torch.nn.functional.relu(self.mask(y))
         # n x To
-        return self.decoder(w * m)
+        output = self.decoder(w * m)
+        return output, diagnostics
+
+    def forward(self, x, v):
+        output, _ = self._forward_impl(x, v, return_diagnostics=False)
+        return output
+
+    def forward_with_hierarchical_diagnostics(self, x, v):
+        """Return enhanced audio and optional V1/V2 scale/gate diagnostics."""
+        return self._forward_impl(x, v, return_diagnostics=True)
 
 
 class AV_ConvTasNet(BaseModel):
@@ -772,6 +1114,11 @@ class AV_ConvTasNet(BaseModel):
         fusion_gate_hidden=128,
         fusion_heads=4,
         fusion_dropout=0.0,
+        hierarchical_fusion_version="none",
+        hierarchical_video_layers=(1, 3, 5),
+        hierarchical_residual_init=0.05,
+        hierarchical_gate_hidden=128,
+        hierarchical_stage_residual_init=0.05,
         # Other parameters
         sample_rate=16000,
         skip_con=False,
@@ -796,6 +1143,11 @@ class AV_ConvTasNet(BaseModel):
             fusion_gate_hidden=fusion_gate_hidden,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
+            hierarchical_fusion_version=hierarchical_fusion_version,
+            hierarchical_video_layers=tuple(hierarchical_video_layers),
+            hierarchical_residual_init=hierarchical_residual_init,
+            hierarchical_gate_hidden=hierarchical_gate_hidden,
+            hierarchical_stage_residual_init=hierarchical_stage_residual_init,
             sample_rate=sample_rate,
             skip_con=skip_con,
             audio_index=audio_index,
@@ -835,6 +1187,11 @@ class AV_ConvTasNet(BaseModel):
             fusion_gate_hidden=fusion_gate_hidden,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
+            hierarchical_fusion_version=hierarchical_fusion_version,
+            hierarchical_video_layers=hierarchical_video_layers,
+            hierarchical_residual_init=hierarchical_residual_init,
+            hierarchical_gate_hidden=hierarchical_gate_hidden,
+            hierarchical_stage_residual_init=hierarchical_stage_residual_init,
             skip_con=skip_con,
             audio_index=audio_index,
             norm=norm,
@@ -870,6 +1227,14 @@ class AV_ConvTasNet(BaseModel):
             v = self.video_model(mouth.type_as(x))
 
         return self.av_model(x, v)
+
+    def forward_with_hierarchical_diagnostics(self, x, mouth):
+        """Run inference while exposing optional V1/V2 fusion diagnostics."""
+        if mouth.ndim == 4:
+            mouth = mouth.unsqueeze(1)
+        with torch.no_grad():
+            v = self.video_model(mouth.type_as(x))
+        return self.av_model.forward_with_hierarchical_diagnostics(x, v)
 
     def train(self, mode=True):
         """Set training mode, while keeping configured frozen modules in eval.
