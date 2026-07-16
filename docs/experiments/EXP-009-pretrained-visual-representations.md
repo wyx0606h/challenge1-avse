@@ -17,7 +17,7 @@
 - **Branch:** `exp/pretrained-visual-representations`
 - **Initial protocol commit:** `245aab3`
 - **Audio-first protocol amendment:** `a2ec7b0`
-- **Implementation commit:** TODO
+- **Implementation commit:** `3a9e5b7`
 - **Formal-run commit SHA:** TODO
 
 This record defines two ordered versions under one coherent question: whether
