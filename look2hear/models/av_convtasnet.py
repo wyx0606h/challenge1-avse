@@ -5,22 +5,24 @@ The original AV_model (Kai Li, 2021) and all of its building blocks are inlined
 here so the model is fully self-contained inside the ``look2hear`` package and
 needs no external module imports.
 
-The ``AV_ConvTasNet`` wrapper bundles the frozen ResNet video encoder together
-with the audio-visual separator and stores every initialization hyper-parameter,
-so ``BaseModel.serialize`` writes a single self-describing checkpoint that holds
-*both* the video-encoder and separator weights. Loading then becomes::
+The ``AV_ConvTasNet`` wrapper bundles a video encoder together with the
+audio-visual separator and stores every architectural initialization
+hyper-parameter. The default remains the official frozen ResNet encoder.
+Experiments can explicitly select an external frozen AV-HuBERT backbone with
+small trainable adapters.
 
     model = AV_ConvTasNet.from_pretrain("best_model.pth")
     enhanced = model(mixture, lip_frames)   # raw lip frames, no separate video net
 
-with no hyper-parameters and no external pretrained file required at the call
-site.
+The legacy ResNet checkpoint remains self-contained. AV-HuBERT experiments
+require the same external repository/checkpoint environment used at training
+when reconstructing the model.
 """
 import torch
 import torch.nn as nn
 
 from ..models.base import BaseModel
-from ..videomodels import ResNetVideoModel
+from ..videomodels import AVHubertVideoModel, ResNetVideoModel
 
 
 # ---------- Basic Part -------------
@@ -691,6 +693,98 @@ class ReliabilityGatedFusion(nn.Module):
         return self.out_proj(fused)
 
 
+class AudioAnchoredVisualFusion(nn.Module):
+    """Audio-first visual fusion with baseline-compatible projection weights.
+
+    The original concat projection remains at ``conv1d`` with the same key and
+    tensor shape, so an EXP-008 checkpoint initializes it exactly. A bounded
+    gate scales only the visual input before that projection. Zero visual scale
+    therefore keeps the checkpoint's learned audio slice and bias while
+    removing unreliable visual evidence.
+    """
+
+    def __init__(
+        self,
+        audio_channels,
+        video_channels,
+        out_channels,
+        gate_hidden=128,
+        visual_residual_init=0.05,
+    ):
+        super(AudioAnchoredVisualFusion, self).__init__()
+        self.audio_channels = int(audio_channels)
+        self.video_channels = int(video_channels)
+        self.out_channels = int(out_channels)
+        gate_hidden = int(gate_hidden)
+        visual_residual_init = float(visual_residual_init)
+        if gate_hidden <= 0:
+            raise ValueError(f"gate_hidden must be positive, got {gate_hidden}")
+        if visual_residual_init < 0:
+            raise ValueError(
+                "visual_residual_init must be non-negative, got "
+                f"{visual_residual_init}"
+            )
+
+        # Keep this name/shape identical to Concat for exact warm-start loading.
+        self.conv1d = nn.Conv1d(
+            self.audio_channels + self.video_channels,
+            self.out_channels,
+            1,
+        )
+        self.audio_gate_proj = nn.Conv1d(
+            self.audio_channels, gate_hidden, 1
+        )
+        self.video_gate_proj = nn.Conv1d(
+            self.video_channels, gate_hidden, 1
+        )
+        self.gate = nn.Sequential(
+            nn.Conv1d(gate_hidden * 3, gate_hidden, 1),
+            nn.PReLU(gate_hidden),
+            nn.Conv1d(gate_hidden, self.video_channels, 1),
+            nn.Sigmoid(),
+        )
+        self.visual_residual_scale = nn.Parameter(
+            torch.tensor(visual_residual_init, dtype=torch.float32)
+        )
+
+    def forward_with_diagnostics(self, a, v):
+        if a.size(1) != self.audio_channels or v.size(1) != self.video_channels:
+            raise RuntimeError(
+                "Dimention mismatch for audio/video features, "
+                "{:d}/{:d} vs {:d}/{:d}".format(
+                    a.size(1),
+                    v.size(1),
+                    self.audio_channels,
+                    self.video_channels,
+                )
+            )
+        v = torch.nn.functional.interpolate(v, size=a.size(-1))
+        audio_gate = self.audio_gate_proj(a)
+        video_gate = self.video_gate_proj(v)
+        gate = self.gate(
+            torch.cat(
+                [
+                    audio_gate,
+                    video_gate,
+                    torch.abs(audio_gate - video_gate),
+                ],
+                dim=1,
+            )
+        )
+        scale = torch.tanh(self.visual_residual_scale)
+        scaled_video = scale * gate * v
+        output = self.conv1d(torch.cat([a, scaled_video], dim=1))
+        diagnostics = {
+            "visual_gate": gate,
+            "visual_residual_scale": scale,
+        }
+        return output, diagnostics
+
+    def forward(self, a, v):
+        output, _ = self.forward_with_diagnostics(a, v)
+        return output
+
+
 class CrossAttentionFusion(nn.Module):
     """
     Cross-attention fusion: audio queries aligned visual evidence.
@@ -757,8 +851,16 @@ class CrossAttentionFusion(nn.Module):
         return self.out_proj(fused.transpose(1, 2))
 
 
-def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels,
-                       gate_hidden=128, num_heads=4, dropout=0.0):
+def make_fusion_module(
+    fusion_type,
+    audio_channels,
+    video_channels,
+    out_channels,
+    gate_hidden=128,
+    num_heads=4,
+    dropout=0.0,
+    visual_residual_init=0.05,
+):
     """Create the selected audio-visual fusion module."""
     fusion_type = (fusion_type or "concat").lower()
     if fusion_type == "concat":
@@ -770,6 +872,14 @@ def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels
             out_channels,
             gate_hidden=gate_hidden,
         )
+    if fusion_type == "audio_anchored_gate":
+        return AudioAnchoredVisualFusion(
+            audio_channels,
+            video_channels,
+            out_channels,
+            gate_hidden=gate_hidden,
+            visual_residual_init=visual_residual_init,
+        )
     if fusion_type == "cross_attention":
         return CrossAttentionFusion(
             audio_channels,
@@ -780,7 +890,9 @@ def make_fusion_module(fusion_type, audio_channels, video_channels, out_channels
         )
     raise ValueError(
         "Unsupported fusion_type {!r}. Expected one of: concat, "
-        "reliability_gate, cross_attention.".format(fusion_type)
+        "reliability_gate, audio_anchored_gate, cross_attention.".format(
+            fusion_type
+        )
     )
 
 
@@ -840,6 +952,7 @@ class AV_model(nn.Module):
             fusion_gate_hidden=128,
             fusion_heads=4,
             fusion_dropout=0.0,
+            fusion_visual_residual_init=0.05,
             hierarchical_fusion_version="none",
             hierarchical_video_layers=(1, 3, 5),
             hierarchical_residual_init=0.05,
@@ -934,6 +1047,7 @@ class AV_model(nn.Module):
             gate_hidden=fusion_gate_hidden,
             num_heads=fusion_heads,
             dropout=fusion_dropout,
+            visual_residual_init=fusion_visual_residual_init,
         )
         self.feats_conv = Audio_Sequential(
             R - audio_index,
@@ -1025,7 +1139,15 @@ class AV_model(nn.Module):
                 stage_gates = None
 
         # audio/video fusion
-        y = self.concat(a, fused_video)
+        if return_diagnostics and hasattr(
+            self.concat, "forward_with_diagnostics"
+        ):
+            y, fusion_diagnostics = self.concat.forward_with_diagnostics(
+                a, fused_video
+            )
+            diagnostics["fusion"] = fusion_diagnostics
+        else:
+            y = self.concat(a, fused_video)
 
         # fused audio-visual features: n x F x T
         if self.hierarchical_fusion_version == "v2":
@@ -1072,16 +1194,10 @@ class AV_ConvTasNet(BaseModel):
     """
     Audio-Visual Conv-TasNet for Speech Enhancement.
 
-    Bundles the frozen ResNet lip-reading video encoder together with the
-    :class:`AV_model` separator so a single checkpoint carries *both* sets of
-    weights. The forward pass takes raw lip frames and runs the video encoder
-    internally, so no separate video model is needed at train or test time.
-
-    All initialization hyper-parameters are recorded and written into the
-    checkpoint by ``serialize``, so the model rebuilds with
-    ``AV_ConvTasNet.from_pretrain(path)`` alone -- including the video encoder,
-    whose weights come from the checkpoint rather than the external
-    ``video_pretrain`` file.
+    The default path bundles the frozen legacy ResNet lip encoder exactly as
+    before. EXP-009 can opt into a frozen external AV-HuBERT frontend/context
+    encoder with small trainable adapters. In both cases the forward pass takes
+    raw lip frames and runs visual extraction internally.
 
     Args:
         N..causal: audio/video/fusion hyper-parameters of :class:`AV_model`.
@@ -1090,6 +1206,9 @@ class AV_ConvTasNet(BaseModel):
             initialize a *fresh* model for training; it is intentionally **not**
             stored in the checkpoint (the trained weights already are), so it can
             be ``None`` when loading via ``from_pretrain``.
+        visual_encoder_type: ``resnet`` (default) or the opt-in ``avhubert``.
+        visual_repository_root/visual_checkpoint_path: optional external paths;
+            environment variables are preferred and paths are not serialized.
     """
 
     def __init__(
@@ -1114,6 +1233,7 @@ class AV_ConvTasNet(BaseModel):
         fusion_gate_hidden=128,
         fusion_heads=4,
         fusion_dropout=0.0,
+        fusion_visual_residual_init=0.05,
         hierarchical_fusion_version="none",
         hierarchical_video_layers=(1, 3, 5),
         hierarchical_residual_init=0.05,
@@ -1128,8 +1248,23 @@ class AV_ConvTasNet(BaseModel):
         # Video encoder parameters
         video_relu_type="prelu",
         video_pretrain=None,
+        visual_encoder_type="resnet",
+        visual_feature_mode="frontend",
+        visual_context_layer=12,
+        visual_adapter_out=512,
+        visual_gate_hidden=128,
+        visual_context_residual_init=0.05,
+        visual_repository_root=None,
+        visual_checkpoint_path=None,
     ):
         super().__init__(sample_rate=sample_rate)
+        visual_encoder_type = str(visual_encoder_type).lower()
+        if visual_encoder_type not in ("resnet", "avhubert"):
+            raise ValueError(
+                "visual_encoder_type must be 'resnet' or 'avhubert', got "
+                f"{visual_encoder_type!r}"
+            )
+        self.visual_encoder_type = visual_encoder_type
 
         # Record every architectural init argument so the checkpoint is
         # self-describing and from_pretrain can rebuild the exact model without a
@@ -1143,6 +1278,7 @@ class AV_ConvTasNet(BaseModel):
             fusion_gate_hidden=fusion_gate_hidden,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
+            fusion_visual_residual_init=fusion_visual_residual_init,
             hierarchical_fusion_version=hierarchical_fusion_version,
             hierarchical_video_layers=tuple(hierarchical_video_layers),
             hierarchical_residual_init=hierarchical_residual_init,
@@ -1154,31 +1290,43 @@ class AV_ConvTasNet(BaseModel):
             norm=norm,
             causal=causal,
             video_relu_type=video_relu_type,
+            visual_encoder_type=visual_encoder_type,
+            visual_feature_mode=visual_feature_mode,
+            visual_context_layer=visual_context_layer,
+            visual_adapter_out=visual_adapter_out,
+            visual_gate_hidden=visual_gate_hidden,
+            visual_context_residual_init=visual_context_residual_init,
         )
 
-        # Frozen video feature extractor (lip frames -> [B, E, Tv]).
-        self.video_model = ResNetVideoModel(
-            relu_type=video_relu_type,
-            pretrain=video_pretrain,
-        )
-        # The ResNet encoder output width is fixed (backend_out, 512); the video
-        # branch of the separator is built with in_channels=E. They must match or
-        # the first video Conv1d fails with an opaque channel-mismatch error.
+        # Video feature extractor (lip frames -> [B, E, Tv]). The official
+        # ResNet path is unchanged. AV-HuBERT is opt-in and loads its external
+        # assets lazily only when selected.
+        if visual_encoder_type == "resnet":
+            self.video_model = ResNetVideoModel(
+                relu_type=video_relu_type,
+                pretrain=video_pretrain,
+            )
+            for parameter in self.video_model.parameters():
+                parameter.requires_grad = False
+            self.video_model.eval()
+        else:
+            self.video_model = AVHubertVideoModel(
+                feature_mode=visual_feature_mode,
+                output_dim=visual_adapter_out,
+                context_layer=visual_context_layer,
+                gate_hidden=visual_gate_hidden,
+                context_residual_init=visual_context_residual_init,
+                repository_root=visual_repository_root,
+                checkpoint_path=visual_checkpoint_path,
+            )
+
+        # The separator video branch is built with in_channels=E. It must match
+        # the selected encoder output width.
         if E != self.video_model.backend_out:
             raise ValueError(
                 f"E ({E}) must equal the video encoder output width "
                 f"({self.video_model.backend_out})."
             )
-        # Always freeze the video encoder: when loading via from_pretrain
-        # (video_pretrain=None) ResNetVideoModel.init_from never runs, so freeze
-        # here unconditionally to keep it out of the optimizer in every path.
-        for p in self.video_model.parameters():
-            p.requires_grad = False
-        # Keep the encoder in eval mode so its pretrained BatchNorm running stats
-        # are used as-is and never updated. requires_grad/no_grad do NOT stop BN
-        # buffer updates -- only eval mode does. See train() below, which re-pins
-        # this every time the parent module is switched back to train mode.
-        self.video_model.eval()
 
         self.av_model = AV_model(
             N=N, L=L, B=B, Sc=Sc, H=H, P=P, X=X, R=R,
@@ -1187,6 +1335,7 @@ class AV_ConvTasNet(BaseModel):
             fusion_gate_hidden=fusion_gate_hidden,
             fusion_heads=fusion_heads,
             fusion_dropout=fusion_dropout,
+            fusion_visual_residual_init=fusion_visual_residual_init,
             hierarchical_fusion_version=hierarchical_fusion_version,
             hierarchical_video_layers=hierarchical_video_layers,
             hierarchical_residual_init=hierarchical_residual_init,
@@ -1198,16 +1347,15 @@ class AV_ConvTasNet(BaseModel):
             causal=causal,
         )
 
-        # Keep ``video_pretrain`` OUT of the HuggingFace config. PyTorchModelHubMixin
-        # captures every __init__ argument into config.json; video_pretrain is just
-        # a path to the backbone used to *initialise* a fresh model, and the trained
-        # video weights already live in the state_dict. Persisting a local training
-        # path would make from_pretrained() try to load a file that does not exist
-        # on the downloader's machine. Drop it so the rebuilt model uses the default
-        # (video_pretrain=None) and takes its video weights from the checkpoint.
+        # Keep machine-specific initialization paths OUT of HuggingFace config.
+        # The legacy ResNet weights live in the saved state_dict; AV-HuBERT
+        # experiments resolve their licensed external assets from the target
+        # environment when reconstructing the architecture.
         cfg = getattr(self, "_hub_mixin_config", None)
         if isinstance(cfg, dict):
             cfg.pop("video_pretrain", None)
+            cfg.pop("visual_repository_root", None)
+            cfg.pop("visual_checkpoint_path", None)
 
     def forward(self, x, mouth):
         """
@@ -1222,8 +1370,13 @@ class AV_ConvTasNet(BaseModel):
             # add channel dim for grayscale: [B, Tv, H, W] -> [B, 1, Tv, H, W]
             mouth = mouth.unsqueeze(1)
 
-        # Video encoder is frozen; never accumulate grads through it.
-        with torch.no_grad():
+        if self.visual_encoder_type == "resnet":
+            # The official encoder is fully frozen.
+            with torch.no_grad():
+                v = self.video_model(mouth.type_as(x))
+        else:
+            # AV-HuBERT freezes its external backbone internally but keeps the
+            # experiment adapters trainable.
             v = self.video_model(mouth.type_as(x))
 
         return self.av_model(x, v)
@@ -1232,9 +1385,20 @@ class AV_ConvTasNet(BaseModel):
         """Run inference while exposing optional V1/V2 fusion diagnostics."""
         if mouth.ndim == 4:
             mouth = mouth.unsqueeze(1)
-        with torch.no_grad():
-            v = self.video_model(mouth.type_as(x))
-        return self.av_model.forward_with_hierarchical_diagnostics(x, v)
+        if self.visual_encoder_type == "resnet":
+            with torch.no_grad():
+                v = self.video_model(mouth.type_as(x))
+            visual_diagnostics = None
+        else:
+            v, visual_diagnostics = self.video_model.forward_with_diagnostics(
+                mouth.type_as(x)
+            )
+        output, diagnostics = (
+            self.av_model.forward_with_hierarchical_diagnostics(x, v)
+        )
+        if visual_diagnostics is not None:
+            diagnostics["pretrained_visual"] = visual_diagnostics
+        return output, diagnostics
 
     def train(self, mode=True):
         """Set training mode, while keeping configured frozen modules in eval.
@@ -1248,7 +1412,12 @@ class AV_ConvTasNet(BaseModel):
         separator branches with BatchNorm buffers.
         """
         super().train(mode)
-        self.video_model.eval()
+        if self.visual_encoder_type == "resnet":
+            self.video_model.eval()
+        else:
+            # AVHubertVideoModel.train keeps only the small adapters in the
+            # requested mode and re-pins the external backbone to eval.
+            self.video_model.train(mode)
         for prefix in getattr(self, "_force_eval_module_prefixes", ()):
             module = self
             for part in str(prefix).split("."):

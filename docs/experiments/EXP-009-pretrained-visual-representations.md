@@ -15,7 +15,8 @@
   `degrade_prob: 0.0`; until available, EXP-006 is a secondary reference only.
 - **Immutable source baseline:** `baseline/track2-source-v1`
 - **Branch:** `exp/pretrained-visual-representations`
-- **Protocol commit:** TODO
+- **Initial protocol commit:** `245aab3`
+- **Audio-first protocol amendment:** `a2ec7b0`
 - **Implementation commit:** TODO
 - **Formal-run commit SHA:** TODO
 
@@ -163,21 +164,23 @@ encoder layer. The residual scale starts at 0.05 so initialization remains
 close to V1. This tests the requested “lip shape plus semantic/contextual
 information” idea without forcing the contextual representation to dominate.
 
-At the audio-visual fusion point, V2 then uses the audio feature as an identity
-base and injects the projected visual feature through a second bounded gate:
+At the audio-visual fusion point, V2 preserves the baseline concat projection
+and gates only its visual input. The old `conv1d` key and shape remain
+unchanged, so the EXP-008 V1 audio/visual projection weights load exactly:
 
 ```text
-audio_base = audio
 visual_gate = sigmoid(MLP([audio, visual, abs(audio - visual)]))
-fused = audio_base + tanh(visual_scale) * visual_gate * visual
+scaled_visual = tanh(visual_scale) * visual_gate * visual
+fused = old_concat_projection([audio, scaled_visual])
 ```
 
-This fusion requires equal audio/fused widths, which the locked configuration
-already satisfies (`B=F=256`). Its visual scale also starts at 0.05.
+When the visual scale closes, the old projection's learned audio slice and bias
+remain active. Its visual scale starts at 0.05.
 
 Expected behavior:
 
-- V2 is initially close to V1;
+- the local/context visual representation is initially close to V1, while the
+  second fusion scale deliberately starts audio-dominant;
 - the contextual scale and gate become non-zero/non-constant if context helps;
 - the audio path remains available when the visual gate closes;
 - V2 improves CER or speech quality without the DNSMOS loss seen from
@@ -259,16 +262,16 @@ The existing lip preprocessing uses the same commonly used AV-HuBERT/RAVEN
 normalization (`mean=0.421`, `std=0.165`) and compatible cropped grayscale
 mouth inputs. This must still be verified on the target server before training.
 
-## Planned files
+## Implemented files
 
-| File | Planned change | Reason |
+| File | Change | Reason |
 |---|---|---|
-| `look2hear/videomodels/avhubert_videomodel.py` | lazy external loader, frozen frontend/context extraction, V1/V2 adapters | isolate optional dependency and pretrained logic |
-| `look2hear/videomodels/__init__.py` | export the new visual model | model registry |
-| `look2hear/models/av_convtasnet.py` | select legacy or AV-HuBERT encoder while preserving default behavior | connect representations to the existing separator |
-| `configs/track2_av_convtasnet_pretrained_visual_v1.yml` | controlled V1 run | test H1 |
-| `configs/track2_av_convtasnet_pretrained_visual_v2.yml` | controlled V2 run | test H2 |
-| `scripts/check_pretrained_visual_representations.py` | local config checks and deferred server asset/tensor checks | validate without committing assets |
+| `look2hear/videomodels/avhubert_videomodel.py` | lazy external loader, frozen frontend/context extraction, V1/V2 adapters and diagnostics | isolate optional dependency and pretrained logic |
+| `look2hear/videomodels/__init__.py` | export `AVHubertVideoModel` | model registry |
+| `look2hear/models/av_convtasnet.py` | opt-in encoder selection, adapter-gradient path, audio-anchored fusion, diagnostics | connect representations while preserving the default ResNet path |
+| `configs/track2_av_convtasnet_pretrained_visual_v1.yml` | controlled V1 with frontend representation and concat | test H1 |
+| `configs/track2_av_convtasnet_pretrained_visual_v2.yml` | dual representation plus audio-anchored gate | test amended H2 |
+| `scripts/check_pretrained_visual_representations.py` | config-only and deferred server asset/tensor checks | validate without committing assets |
 | `EXPERIMENTS.md` | EXP-009 registry row | provenance |
 | this report | protocol and result placeholders | traceability |
 
@@ -307,6 +310,13 @@ fusion_type: audio_anchored_gate
 fusion_gate_hidden: 128
 fusion_visual_residual_init: 0.05
 ```
+
+Configuration SHA-256 values:
+
+- V1:
+  `1766A8A34AC3756C78923EE30588D08C9A4179783C8C372D677DF04D4281C68A`
+- V2:
+  `0C4EFD644858F16BCC5AC3123B02964A5DE81D0F38E14D08AA3386AD7A46F9DB`
 
 ## Evaluation and acceptance criteria
 
@@ -353,6 +363,19 @@ python -m py_compile \
 python scripts/check_pretrained_visual_representations.py --config-only
 ```
 
+Results on 2026-07-16:
+
+- `py_compile`: passed for all touched Python files;
+- EXP-009 config-only validation: passed;
+- `git diff --check`: passed;
+- local runtime import: not validated because the existing Windows Python has
+  NumPy 2.0.2 with a PyTorch binary compiled against NumPy 1.x, which fails
+  while importing `torch` with `_ARRAY_API not found`;
+- no AV-HuBERT load, tensor forward, gradient check, or training was executed.
+
+The local ABI mismatch is an environment limitation rather than a passed or
+failed EXP-009 model check. The target-server command below remains mandatory.
+
 ### Deferred server asset and tensor checks
 
 ```bash
@@ -384,7 +407,7 @@ CUDA_VISIBLE_DEVICES=5,6 /home/avse/avse_gpu_venv/bin/python train.py \
 
 The exact external paths, checkpoint checksum, GPU allocation, and artifact
 root remain TODO until the server is connected. No forward pass, download, or
-formal training is part of the protocol commit.
+formal training is part of this local implementation.
 
 ## Risks and falsification conditions
 
@@ -413,8 +436,9 @@ formal training is part of the protocol commit.
 
 ## Runtime, artifacts, results, and conclusion
 
-- **Configuration hashes:** TODO after implementation
-- **Static syntax/config validation:** TODO
+- **Configuration hashes:** recorded above
+- **Static syntax/config validation:** Passed on 2026-07-16
+- **Local runtime import:** Blocked by pre-existing NumPy/PyTorch ABI mismatch
 - **AV-HuBERT asset/tensor validation:** TODO on target server
 - **Formal-run commit:** TODO
 - **Checkpoint and checksum:** TODO
@@ -424,5 +448,5 @@ formal training is part of the protocol commit.
 - **Result:** No formal run has started
 - **Conclusion:** Inconclusive / protocol only
 - **Candidate for merge:** No while unverified
-- **Next step:** commit this protocol, implement V1/V2 without downloading
-  weights, pass local static checks, then perform the deferred server checks.
+- **Next step:** perform the deferred server asset/tensor check, then run V1
+  before deciding whether to allocate training time to V2.
