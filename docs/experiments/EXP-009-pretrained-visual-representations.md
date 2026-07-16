@@ -23,7 +23,35 @@ This record defines two ordered versions under one coherent question: whether
 stronger pretrained visual speech representations improve challenge metrics
 when the separator, data recipe, and degradation probability are controlled.
 V1 tests the representation replacement itself. V2 is evaluated only after V1
-and tests whether a small contextual residual complements local lip features.
+and tests whether a small contextual residual complements local lip features
+when visual injection is anchored by the audio representation.
+
+## Post-protocol audio-first design review
+
+After the initial protocol commit, a collaborator raised a valid concern:
+Track 2 deliberately degrades video, so the model should protect and strengthen
+the audio path instead of blindly increasing visual dependence.
+
+The review changes V2 but does not turn EXP-009 into an audio-only experiment:
+
+- this challenge runs the same mixture once per target speaker and distinguishes
+  the desired output through that target's lip video; a single-output,
+  audio-only model has no deterministic `s1`/`s2` selection signal unless a
+  separate enrollment or multi-output separation mechanism is introduced;
+- “visual-only AV-HuBERT” means only that the external representation extractor
+  receives video; the complete AVSE model still retains the Conv-TasNet audio
+  encoder and separator;
+- V1 remains the clean representation-replacement test;
+- V2 is amended to use an audio-anchored residual fusion, so the aligned audio
+  feature is the base path and local/context visual evidence is a bounded
+  increment rather than an unconditional replacement;
+- audio SSL is retained as a separate future hypothesis. WavLM is a stronger
+  first candidate than forcing AV-HuBERT's audio branch into this waveform
+  Conv-TasNet because WavLM includes denoising in pretraining:
+  <https://arxiv.org/abs/2110.13900>.
+
+This review was recorded before the implementation commit. It is a protocol
+amendment, not a result.
 
 ## Decision on `degrade_prob`
 
@@ -112,7 +140,7 @@ Expected behavior:
 - SI-SDR/PESQ/STOI and the challenge perceptual metrics improve or remain
   stable, without a material SPK or CER regression.
 
-### H2 / V2: local base plus gated contextual residual
+### H2 / V2: local/context representation with audio-anchored fusion
 
 AV-HuBERT transformer states contain longer-context speech information, but
 the public LRS3 model is English-dominant while the current matched training
@@ -120,8 +148,8 @@ data and challenge speech are Chinese. Replacing local features completely
 with the final contextual state may therefore overfit language-specific
 patterns.
 
-V2 keeps the V1 frontend projection as the base and adds a small, learnable,
-gated contextual residual:
+V2 first keeps the V1 frontend projection as the visual base and adds a small,
+learnable, gated contextual residual:
 
 ```text
 local = local_adapter(AV-HuBERT visual frontend)
@@ -135,10 +163,23 @@ encoder layer. The residual scale starts at 0.05 so initialization remains
 close to V1. This tests the requested “lip shape plus semantic/contextual
 information” idea without forcing the contextual representation to dominate.
 
+At the audio-visual fusion point, V2 then uses the audio feature as an identity
+base and injects the projected visual feature through a second bounded gate:
+
+```text
+audio_base = audio
+visual_gate = sigmoid(MLP([audio, visual, abs(audio - visual)]))
+fused = audio_base + tanh(visual_scale) * visual_gate * visual
+```
+
+This fusion requires equal audio/fused widths, which the locked configuration
+already satisfies (`B=F=256`). Its visual scale also starts at 0.05.
+
 Expected behavior:
 
 - V2 is initially close to V1;
 - the contextual scale and gate become non-zero/non-constant if context helps;
+- the audio path remains available when the visual gate closes;
 - V2 improves CER or speech quality without the DNSMOS loss seen from
   `degrade_prob: 1.0`;
 - contextual ablation after training produces a measurable change if the
@@ -156,7 +197,7 @@ mouth frames
   -> existing audio-visual fusion and separator
 ```
 
-### V2: AV-HuBERT local/context dual-level representation
+### V2: local/context representation plus audio-anchored residual
 
 ```text
 mouth frames
@@ -165,7 +206,11 @@ mouth frames
                                                                         |
                   local + small gated context residual <----------------+
                                       |
-                         existing EXP-008 V1 hierarchy and separator
+                         existing EXP-008 V1 hierarchy
+                                      |
+audio pre-fusion state ---------------+--> audio-anchored visual residual
+                                      |
+                             remaining audio separator
 ```
 
 An active-speaker-detection encoder is not included in these first two
@@ -180,7 +225,7 @@ Changed:
 - replace the legacy ResNet visual encoder with an external frozen AV-HuBERT
   visual representation;
 - V1 adds only a trainable 768-to-512 adapter;
-- V2 adds a contextual projection, gate, and small residual scale;
+- V2 adds a contextual projection/gate and an audio-anchored visual residual;
 - add dedicated V1/V2 configurations, asset checks, and diagnostics.
 
 Intentionally unchanged:
@@ -258,6 +303,9 @@ visual_context_layer: 12
 visual_gate_hidden: 128
 visual_context_residual_init: 0.05
 visual_adapter_out: 512
+fusion_type: audio_anchored_gate
+fusion_gate_hidden: 128
+fusion_visual_residual_init: 0.05
 ```
 
 ## Evaluation and acceptance criteria
@@ -276,8 +324,9 @@ Required checks:
 - 5250-item output completeness and waveform amplitude distribution;
 - no NaN/Inf and no missing/duplicate utterances;
 - V1 adapter gradient and frozen-backbone verification;
-- V2 context residual scale and gate mean/std;
+- V2 context and audio-visual residual scales plus both gate distributions;
 - V2 contextual-off ablation;
+- V2 visual-residual-off audio fallback check;
 - zero-video and time-shifted-video sensitivity;
 - runtime, peak memory, and real-time implications;
 - separate mix/remix and visually degraded subset analysis when labels exist.
@@ -348,6 +397,12 @@ formal training is part of the protocol commit.
 - The LRS3 checkpoint is English-dominant. V1's local frontend is expected to
   transfer more safely; V2 therefore uses contextual features only as a small
   gated residual.
+- A pure audio-only fallback cannot reliably identify `s1` versus `s2` from the
+  identical mixture. Closing the visual gate is therefore a robustness fallback,
+  not a complete replacement for target conditioning.
+- Adding WavLM/audio SSL may improve perceptual quality, but its waveform rate,
+  representation rate, model size, and fusion placement form a separate
+  experiment and are not mixed into EXP-009.
 - Stronger lip-reading features may improve CER while oversuppressing noise or
   speech components, reproducing the DNSMOS trade-off. Full metrics determine
   retention.
